@@ -105,7 +105,7 @@ public:
         
         // 机器人位置控制
         mcp.AddTool("self.robot.position_control", "机器人的位置控制。机器人可以做以下位置控制动作：\n"
-            "forward: 前进\nbackward: 后退\nturn_left: 左转\nturn_right: 右转\nshift_left: 左移\nshift_right: 右移\nforward_fast: 快速前进\nclimb: 攀爬", 
+            "forward: 前进\nbackward: 后退\nturn_left: 左转\nturn_right: 右转\nshift_left: 左移\nshift_right: 右移\nforward_fast: 快速前进（迈大步）\nclimb: 攀爬（抬高腿）", 
             PropertyList({
                 Property("action", kPropertyTypeString),
             }), [this](const PropertyList& properties) -> ReturnValue {
@@ -141,7 +141,7 @@ public:
         
         // 机器人姿态控制
         mcp.AddTool("self.robot.orientation_control", "机器人的姿态控制。机器人可以做以下姿态控制动作：\n"
-            "rotate_x: 绕机身X轴旋转\nrotate_y: 绕机身Y轴旋转\nrotate_z: 绕机身Z轴旋转\ntwist: 扭动身体", 
+            "rotate_x: 绕机身X轴旋转（表现为摇摇头）\nrotate_y: 绕机身Y轴旋转（表现为耸耸肩）\nrotate_z: 绕机身Z轴旋转（表现为扭一纽）\ntwist: 扭动身体（表现为掘屁股）", 
             PropertyList({
                 Property("action", kPropertyTypeString),
             }), [this](const PropertyList& properties) -> ReturnValue {
@@ -163,6 +163,33 @@ public:
                 cJSON* result = nodehexa_controller_->SendCommand(command.c_str());
                 bool success = (result != nullptr && cJSON_HasObjectItem(result, "status") && 
                                strcmp(cJSON_GetObjectItem(result, "status")->valuestring, "success") == 0);
+                cJSON_Delete(result);
+                return success;
+            });
+        // 机器人速度调节
+        mcp.AddTool("self.robot.speed_control", "机器人的速度调节。机器人可以设置以下速度档位：\n"
+            "slowest: 极慢速 (0.25倍速)\nslow: 慢速 (0.33倍速)\nmedium: 中速 (0.5倍速，默认)\nfast: 快速 (1.0倍速)", 
+            PropertyList({
+                Property("speed_level", kPropertyTypeString),
+            }), [this](const PropertyList& properties) -> ReturnValue {
+                const std::string& speedLevel = properties["speed_level"].value<std::string>();
+                int level;
+                
+                if (speedLevel == "slowest") {
+                    level = 0;
+                } else if (speedLevel == "slow") {
+                    level = 1;
+                } else if (speedLevel == "medium") {
+                    level = 2;
+                } else if (speedLevel == "fast") {
+                    level = 3;
+                } else {
+                    return false;
+                }
+                
+                cJSON* result = nodehexa_controller_->SendSpeedLevelCommand(level);
+                bool success = (result != nullptr && cJSON_HasObjectItem(result, "status") && 
+                            strcmp(cJSON_GetObjectItem(result, "status")->valuestring, "success") == 0);
                 cJSON_Delete(result);
                 return success;
             });

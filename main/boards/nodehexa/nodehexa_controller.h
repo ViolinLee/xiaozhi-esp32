@@ -18,6 +18,7 @@ public:
 
     void Initialize();
     cJSON* SendCommand(const std::string& command);
+    cJSON* SendSpeedLevelCommand(int speed_level);
 
 private:
     bool SendUartCommand(const std::string& command);

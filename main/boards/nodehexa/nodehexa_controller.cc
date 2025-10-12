@@ -59,6 +59,49 @@ cJSON* NodeHexaController::SendCommand(const std::string& command) {
     return result;
 }
 
+cJSON* NodeHexaController::SendSpeedLevelCommand(int speed_level) {
+    ESP_LOGI(TAG, "发送速度等级命令: %d", speed_level);
+    
+    cJSON* result = cJSON_CreateObject();
+    
+    // 验证速度等级范围 (0-3)
+    if (speed_level < 0 || speed_level > 3) {
+        cJSON_AddStringToObject(result, "status", "error");
+        cJSON_AddStringToObject(result, "message", "无效的速度等级，范围应为0-3");
+        ESP_LOGE(TAG, "无效的速度等级: %d", speed_level);
+        return result;
+    }
+    
+    // 构造JSON命令: {"speedLevel": level}
+    cJSON* json_cmd = cJSON_CreateObject();
+    cJSON_AddNumberToObject(json_cmd, "speedLevel", speed_level);
+    
+    char* json_str = cJSON_PrintUnformatted(json_cmd);
+    std::string uart_command = "$";  // 添加起始标志
+    uart_command += json_str;
+    uart_command += "\n";  // 添加换行符作为终止标志
+    cJSON_free(json_str);
+    cJSON_Delete(json_cmd);
+    
+    // 发送UART命令
+    if (SendUartCommand(uart_command)) {
+        // 接收响应
+        std::string response = ReceiveUartResponse();
+        
+        cJSON_AddStringToObject(result, "status", "success");
+        cJSON_AddNumberToObject(result, "speedLevel", speed_level);
+        cJSON_AddStringToObject(result, "response", response.c_str());
+        
+        ESP_LOGI(TAG, "速度等级命令执行成功: %d", speed_level);
+    } else {
+        cJSON_AddStringToObject(result, "status", "error");
+        cJSON_AddStringToObject(result, "message", "UART发送失败");
+        ESP_LOGE(TAG, "UART发送失败，速度等级: %d", speed_level);
+    }
+    
+    return result;
+}
+
 bool NodeHexaController::SendUartCommand(const std::string& command) {
     int written = uart_write_bytes(UART_NUM_1, command.c_str(), command.length());
     if (written == command.length()) {
