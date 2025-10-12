@@ -141,7 +141,7 @@ public:
         
         // 机器人姿态控制
         mcp.AddTool("self.robot.orientation_control", "机器人的姿态控制。机器人可以做以下姿态控制动作：\n"
-            "rotate_x: 绕机身X轴旋转（表现为摇摇头）\nrotate_y: 绕机身Y轴旋转（表现为耸耸肩）\nrotate_z: 绕机身Z轴旋转（表现为扭一纽）\ntwist: 扭动身体（表现为掘屁股）", 
+            "rotate_x: 摇一下头（绕机身X轴旋转）\nrotate_y: 耸一下肩（绕机身Y轴旋转）\nrotate_z: 扭一下身体（绕机身Z轴旋转）\ntwist: 掘屁股、动一下屁股", 
             PropertyList({
                 Property("action", kPropertyTypeString),
             }), [this](const PropertyList& properties) -> ReturnValue {
