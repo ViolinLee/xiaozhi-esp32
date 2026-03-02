@@ -136,9 +136,9 @@ idf.py set-target esp32s3
 idf.py menuconfig
 ```
 
-打开配置界面后，参考 `esp-hi/config.json` 修改 menuconfig 对应选项。
+打开配置界面后，参考 `nodehexa/config.json` 修改 menuconfig 对应选项。
 
-2. **编译烧录监视**
+1. **编译烧录监视**
 
 ```bash
 idf.py build flash monitor

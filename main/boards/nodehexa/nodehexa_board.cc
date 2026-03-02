@@ -1,7 +1,9 @@
 #include <cJSON.h>
 #include <driver/uart.h>
 #include <esp_log.h>
-#include <wifi_station.h>
+#include <wifi_manager.h>
+#include <ssid_manager.h>
+#include <cctype>
 
 #include "application.h"
 #include "audio/codecs/no_audio_codec.h"
@@ -13,7 +15,7 @@
 #include "system_reset.h"
 #include "wifi_board.h"
 
-#define TAG "NodeHexa"
+static const char* kNodeHexaBoardTag = "NodeHexa";
 
 extern void InitializeNodeHexaController();
 
@@ -21,6 +23,53 @@ class NodeHexaBoard : public WifiBoard {
 private:
     Button boot_button_;
     NodeHexaController* nodehexa_controller_;
+
+    static std::string NormalizeSpeedLevel(std::string speed_level) {
+        std::string normalized;
+        normalized.reserve(speed_level.size());
+        for (unsigned char c : speed_level) {
+            if (c == ' ' || c == '_' || c == '-') {
+                continue;
+            }
+            if (c < 128) {
+                normalized.push_back(static_cast<char>(std::tolower(c)));
+            } else {
+                normalized.push_back(static_cast<char>(c));
+            }
+        }
+        return normalized;
+    }
+
+    static bool ParseSpeedLevel(const std::string& speed_level, int& level) {
+        std::string token = NormalizeSpeedLevel(speed_level);
+        if (token.empty()) {
+            return false;
+        }
+
+        if (token == "0" || token == "slowest" || token == "veryslow" || token == "ultraslow" ||
+            token == "最慢" || token == "极慢" || token == "超慢") {
+            level = 0;
+            return true;
+        }
+        if (token == "1" || token == "slow" || token == "slower" || token == "稍慢" ||
+            token == "慢" || token == "慢一点" || token == "减速") {
+            level = 1;
+            return true;
+        }
+        if (token == "2" || token == "medium" || token == "normal" || token == "default" ||
+            token == "中速" || token == "正常速度" || token == "标准速度") {
+            level = 2;
+            return true;
+        }
+        if (token == "3" || token == "fast" || token == "faster" || token == "fastest" ||
+            token == "quick" || token == "快" || token == "快一点" || token == "加速" ||
+            token == "最快") {
+            level = 3;
+            return true;
+        }
+
+        return false;
+    }
 
     void InitializeUart() {
         // 初始化UART1用于与六足机器人通信 (ESP32-S3默认引脚: GPIO17-TX, GPIO18-RX)
@@ -41,8 +90,11 @@ private:
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting &&
-                !WifiStation::GetInstance().IsConnected()) {
-                ResetWifiConfiguration();
+                !WifiManager::GetInstance().IsConnected()) {
+                // WiFi connect component API no longer provides WifiStation singleton.
+                // Clear stored SSID list then enter config mode.
+                SsidManager::GetInstance().Clear();
+                EnterWifiConfigMode();
             }
             app.ToggleChatState();
         });
@@ -55,7 +107,7 @@ private:
 
 public:
     NodeHexaBoard() : boot_button_(BOOT_BUTTON_GPIO) {
-        ESP_LOGI(TAG, "初始化 NodeHexa 六足机器人主板");
+        ESP_LOGI(kNodeHexaBoardTag, "初始化 NodeHexa 六足机器人主板");
 
         InitializeUart();
         InitializeButtons();
@@ -168,22 +220,15 @@ public:
             });
         // 机器人速度调节
         mcp.AddTool("self.robot.speed_control", "机器人的速度调节。机器人可以设置以下速度档位：\n"
-            "slowest: 极慢速 (0.25倍速)\nslow: 慢速 (0.33倍速)\nmedium: 中速 (0.5倍速，默认)\nfast: 快速 (1.0倍速)", 
+            "slowest: 极慢速 (0.25倍速)\nslow: 慢速 (0.33倍速)\nmedium: 中速 (0.5倍速，默认)\nfast: 快速 (1.0倍速)\n"
+            "参数 speed_level 建议使用 slowest/slow/medium/fast，兼容 0/1/2/3。",
             PropertyList({
                 Property("speed_level", kPropertyTypeString),
             }), [this](const PropertyList& properties) -> ReturnValue {
                 const std::string& speedLevel = properties["speed_level"].value<std::string>();
-                int level;
-                
-                if (speedLevel == "slowest") {
-                    level = 0;
-                } else if (speedLevel == "slow") {
-                    level = 1;
-                } else if (speedLevel == "medium") {
-                    level = 2;
-                } else if (speedLevel == "fast") {
-                    level = 3;
-                } else {
+                int level = 2;
+                if (!ParseSpeedLevel(speedLevel, level)) {
+                    ESP_LOGW(kNodeHexaBoardTag, "未识别的 speed_level 参数: %s", speedLevel.c_str());
                     return false;
                 }
                 
