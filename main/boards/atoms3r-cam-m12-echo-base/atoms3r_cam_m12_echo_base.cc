@@ -8,7 +8,6 @@
 
 #include <esp_log.h>
 #include <driver/i2c_master.h>
-#include <wifi_station.h>
 #include "esp32_camera.h"
 
 #define TAG "AtomS3R CAM/M12 + EchoBase"
@@ -123,10 +122,10 @@ private:
 
         ESP_LOGI(TAG, "Camera Power Enabled");
 
-        vTaskDelay(pdMS_TO_TICKS(300));
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-      void InitializeCamera() {
+    void InitializeCamera() {
         camera_config_t config = {};
         config.pin_d0 = CAMERA_PIN_D0;
         config.pin_d1 = CAMERA_PIN_D1;
@@ -140,7 +139,7 @@ private:
         config.pin_pclk = CAMERA_PIN_PCLK;
         config.pin_vsync = CAMERA_PIN_VSYNC;
         config.pin_href = CAMERA_PIN_HREF;
-        config.pin_sccb_sda = CAMERA_PIN_SIOD;  
+        config.pin_sccb_sda = CAMERA_PIN_SIOD;
         config.pin_sccb_scl = CAMERA_PIN_SIOC;
         config.sccb_i2c_port = 1;
         config.pin_pwdn = CAMERA_PIN_PWDN;
@@ -152,6 +151,7 @@ private:
         config.fb_count = 1;
         config.fb_location = CAMERA_FB_IN_PSRAM;
         config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+
         camera_ = new Esp32Camera(config);
         camera_->SetHMirror(false);
     }

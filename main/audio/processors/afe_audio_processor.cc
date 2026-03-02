@@ -53,8 +53,6 @@ void AfeAudioProcessor::Initialize(AudioCodec* codec, int frame_duration_ms, srm
         afe_config->ns_init = false;
     }
 
-    afe_config->afe_perferred_core = 1;
-    afe_config->afe_perferred_priority = 1;
     afe_config->agc_init = false;
     afe_config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
 
@@ -94,7 +92,18 @@ void AfeAudioProcessor::Feed(std::vector<int16_t>&& data) {
     if (afe_data_ == nullptr) {
         return;
     }
-    afe_iface_->feed(afe_data_, data.data());
+
+    std::lock_guard<std::mutex> lock(input_buffer_mutex_);
+    // Check running state inside lock to avoid TOCTOU race with Stop()
+    if (!IsRunning()) {
+        return;
+    }
+    input_buffer_.insert(input_buffer_.end(), data.begin(), data.end());
+    size_t chunk_size = afe_iface_->get_feed_chunksize(afe_data_) * codec_->input_channels();
+    while (input_buffer_.size() >= chunk_size) {
+        afe_iface_->feed(afe_data_, input_buffer_.data());
+        input_buffer_.erase(input_buffer_.begin(), input_buffer_.begin() + chunk_size);
+    }
 }
 
 void AfeAudioProcessor::Start() {
@@ -103,9 +112,12 @@ void AfeAudioProcessor::Start() {
 
 void AfeAudioProcessor::Stop() {
     xEventGroupClearBits(event_group_, PROCESSOR_RUNNING);
+
+    std::lock_guard<std::mutex> lock(input_buffer_mutex_);
     if (afe_data_ != nullptr) {
         afe_iface_->reset_buffer(afe_data_);
     }
+    input_buffer_.clear();
 }
 
 bool AfeAudioProcessor::IsRunning() {

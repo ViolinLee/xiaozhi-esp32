@@ -1,17 +1,18 @@
 #include "wifi_board.h"
 #include "codecs/box_audio_codec.h"
 #include "display/lcd_display.h"
+#include "display/emote_display.h"
 #include "application.h"
 #include "button.h"
 #include "config.h"
 #include "i2c_device.h"
 #include "esp32_camera.h"
+#include "mcp_server.h"
 
 #include <esp_log.h>
 #include <esp_lcd_panel_vendor.h>
 #include <driver/i2c_master.h>
 #include <driver/spi_common.h>
-#include <wifi_station.h>
 #include <esp_lcd_touch_ft5x06.h>
 #include <esp_lvgl_port.h>
 #include <lvgl.h>
@@ -68,7 +69,7 @@ private:
     i2c_master_bus_handle_t i2c_bus_;
     i2c_master_dev_handle_t pca9557_handle_;
     Button boot_button_;
-    LcdDisplay* display_;
+    Display* display_;
     Pca9557* pca9557_;
     Esp32Camera* camera_;
 
@@ -106,8 +107,10 @@ private:
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateStarting && !WifiStation::GetInstance().IsConnected()) {
-                ResetWifiConfiguration();
+            // During startup (before connected), pressing BOOT button enters Wi-Fi config mode without reboot
+            if (app.GetDeviceState() == kDeviceStateStarting) {
+                EnterWifiConfigMode();
+                return;
             }
             app.ToggleChatState();
         });
@@ -152,8 +155,14 @@ private:
         esp_lcd_panel_invert_color(panel, true);
         esp_lcd_panel_swap_xy(panel, DISPLAY_SWAP_XY);
         esp_lcd_panel_mirror(panel, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y);
+        esp_lcd_panel_disp_on_off(panel, true);
+
+#if CONFIG_USE_EMOTE_MESSAGE_STYLE
+        display_ = new emote::EmoteDisplay(panel, panel_io, DISPLAY_WIDTH, DISPLAY_HEIGHT);
+#else
         display_ = new SpiLcdDisplay(panel_io, panel,
-                                    DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+            DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
+#endif
     }
 
     void InitializeTouch()
@@ -188,7 +197,11 @@ private:
             .handle = tp,
         };
 
-        lvgl_port_add_touch(&touch_cfg);
+        if(touch_cfg.disp) {
+            lvgl_port_add_touch(&touch_cfg);
+        } else {
+            ESP_LOGE(TAG, "Touch display is not initialized");
+        }
     }
 
     void InitializeCamera() {
@@ -196,8 +209,8 @@ private:
         pca9557_->SetOutputState(2, 0);
 
         camera_config_t config = {};
-        config.ledc_channel = LEDC_CHANNEL_2;  // LEDC通道选择  用于生成XCLK时钟 但是S3不用
-        config.ledc_timer = LEDC_TIMER_2; // LEDC timer选择  用于生成XCLK时钟 但是S3不用
+        config.ledc_channel = LEDC_CHANNEL_2;
+        config.ledc_timer = LEDC_TIMER_2;
         config.pin_d0 = CAMERA_PIN_D0;
         config.pin_d1 = CAMERA_PIN_D1;
         config.pin_d2 = CAMERA_PIN_D2;
@@ -210,20 +223,31 @@ private:
         config.pin_pclk = CAMERA_PIN_PCLK;
         config.pin_vsync = CAMERA_PIN_VSYNC;
         config.pin_href = CAMERA_PIN_HREF;
-        config.pin_sccb_sda = -1;   // 这里写-1 表示使用已经初始化的I2C接口
+        config.pin_sccb_sda = -1;
         config.pin_sccb_scl = CAMERA_PIN_SIOC;
         config.sccb_i2c_port = 1;
         config.pin_pwdn = CAMERA_PIN_PWDN;
         config.pin_reset = CAMERA_PIN_RESET;
         config.xclk_freq_hz = XCLK_FREQ_HZ;
         config.pixel_format = PIXFORMAT_RGB565;
-        config.frame_size = FRAMESIZE_VGA;
+        config.frame_size = FRAMESIZE_QVGA;
         config.jpeg_quality = 12;
         config.fb_count = 1;
         config.fb_location = CAMERA_FB_IN_PSRAM;
         config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 
         camera_ = new Esp32Camera(config);
+    }
+
+    void InitializeTools() {
+        auto &mcp_server = McpServer::GetInstance();
+        mcp_server.AddTool("self.system.reconfigure_wifi",
+            "End this conversation and enter WiFi configuration mode.\n"
+            "**CAUTION** You must ask the user to confirm this action.",
+            PropertyList(), [this](const PropertyList& properties) {
+                EnterWifiConfigMode();
+                return true;
+            });
     }
 
 public:
@@ -234,6 +258,7 @@ public:
         InitializeTouch();
         InitializeButtons();
         InitializeCamera();
+        InitializeTools();
 
         GetBacklight()->RestoreBrightness();
     }

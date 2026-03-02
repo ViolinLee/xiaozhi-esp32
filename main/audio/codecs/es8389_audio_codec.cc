@@ -12,6 +12,7 @@ Es8389AudioCodec::Es8389AudioCodec(void* i2c_master_handle, i2c_port_t i2c_port,
     input_channels_ = 1; // 输入通道数
     input_sample_rate_ = input_sample_rate;
     output_sample_rate_ = output_sample_rate;
+    input_gain_ = 40;
     pa_pin_ = pa_pin;
     CreateDuplexChannels(mclk, bclk, ws, dout, din);
 
@@ -131,6 +132,8 @@ void Es8389AudioCodec::CreateDuplexChannels(gpio_num_t mclk, gpio_num_t bclk, gp
 
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(tx_handle_, &std_cfg));
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(rx_handle_, &std_cfg));
+    ESP_ERROR_CHECK(i2s_channel_enable(tx_handle_));
+    ESP_ERROR_CHECK(i2s_channel_enable(rx_handle_));
     ESP_LOGI(TAG, "Duplex channels created");
 }
 
@@ -153,7 +156,7 @@ void Es8389AudioCodec::EnableInput(bool enable) {
             .mclk_multiple = 0,
         };
         ESP_ERROR_CHECK(esp_codec_dev_open(input_dev_, &fs));
-        ESP_ERROR_CHECK(esp_codec_dev_set_in_gain(input_dev_, 40.0));
+        ESP_ERROR_CHECK(esp_codec_dev_set_in_gain(input_dev_, input_gain_));
     } else {
         ESP_ERROR_CHECK(esp_codec_dev_close(input_dev_));
     }

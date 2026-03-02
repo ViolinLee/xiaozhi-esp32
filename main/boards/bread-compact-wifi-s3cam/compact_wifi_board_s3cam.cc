@@ -10,7 +10,6 @@
 #include "led/single_led.h"
 #include "esp32_camera.h"
 
-#include <wifi_station.h>
 #include <esp_log.h>
 #include <driver/i2c_master.h>
 #include <esp_lcd_panel_vendor.h>
@@ -66,7 +65,7 @@ private:
  
     Button boot_button_;
     LcdDisplay* display_;
-     Esp32Camera* camera_;
+    Esp32Camera* camera_;
 
     void InitializeSpi() {
         spi_bus_config_t buscfg = {};
@@ -139,14 +138,14 @@ private:
         config.pin_pclk = CAMERA_PIN_PCLK;
         config.pin_vsync = CAMERA_PIN_VSYNC;
         config.pin_href = CAMERA_PIN_HREF;
-        config.pin_sccb_sda = CAMERA_PIN_SIOD;  
+        config.pin_sccb_sda = CAMERA_PIN_SIOD;
         config.pin_sccb_scl = CAMERA_PIN_SIOC;
         config.sccb_i2c_port = 0;
         config.pin_pwdn = CAMERA_PIN_PWDN;
         config.pin_reset = CAMERA_PIN_RESET;
         config.xclk_freq_hz = XCLK_FREQ_HZ;
         config.pixel_format = PIXFORMAT_RGB565;
-        config.frame_size = FRAMESIZE_QVGA;
+        config.frame_size = FRAMESIZE_VGA;
         config.jpeg_quality = 12;
         config.fb_count = 1;
         config.fb_location = CAMERA_FB_IN_PSRAM;
@@ -158,8 +157,9 @@ private:
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
-            if (app.GetDeviceState() == kDeviceStateStarting && !WifiStation::GetInstance().IsConnected()) {
-                ResetWifiConfiguration();
+            if (app.GetDeviceState() == kDeviceStateStarting) {
+                EnterWifiConfigMode();
+                return;
             }
             app.ToggleChatState();
         });
