@@ -6,9 +6,11 @@
 #include <cctype>
 
 #include "application.h"
+#include "assets/lang_config.h"
 #include "audio/codecs/no_audio_codec.h"
 #include "button.h"
 #include "config.h"
+#include "display.h"
 #include "led/single_led.h"
 #include "mcp_server.h"
 #include "nodehexa_controller.h"
@@ -18,6 +20,17 @@
 static const char* kNodeHexaBoardTag = "NodeHexa";
 
 extern void InitializeNodeHexaController();
+
+namespace {
+
+cJSON* CreateBoardError(const char* message) {
+    cJSON* result = cJSON_CreateObject();
+    cJSON_AddStringToObject(result, "status", "error");
+    cJSON_AddStringToObject(result, "message", message);
+    return result;
+}
+
+}  // namespace
 
 class NodeHexaBoard : public WifiBoard {
 private:
@@ -102,6 +115,24 @@ private:
 
     void InitializeNodeHexaController() {
         nodehexa_controller_ = new NodeHexaController();
+        nodehexa_controller_->SetLowBatteryCallback([](const std::string& message) {
+            const std::string alert_message = message.empty() ? Lang::Strings::BATTERY_NEED_CHARGE : message;
+            ESP_LOGW(kNodeHexaBoardTag, "六足进入低电量保护，准备主动提醒: %s", alert_message.c_str());
+            auto& app = Application::GetInstance();
+            app.Schedule([alert_message]() {
+                auto& scheduled_app = Application::GetInstance();
+                auto* display = Board::GetInstance().GetDisplay();
+                ESP_LOGI(kNodeHexaBoardTag, "<< %s", alert_message.c_str());
+                scheduled_app.Alert(
+                    Lang::Strings::WARNING,
+                    alert_message.c_str(),
+                    "triangle_exclamation",
+                    Lang::Sounds::OGG_LOW_BATTERY);
+                if (display != nullptr) {
+                    display->SetChatMessage("assistant", alert_message.c_str());
+                }
+            });
+        });
         nodehexa_controller_->Initialize();
     }
 
@@ -148,11 +179,7 @@ public:
         
         // 机器人待机状态
         mcp.AddTool("self.robot.standby", "机器人待机状态。通常在命令停止运动时调用。", PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
-            cJSON* result = nodehexa_controller_->SendCommand("STANDBY");
-            bool success = (result != nullptr && cJSON_HasObjectItem(result, "status") && 
-                           strcmp(cJSON_GetObjectItem(result, "status")->valuestring, "success") == 0);
-            cJSON_Delete(result);
-            return success;
+            return nodehexa_controller_->SendCommand("STANDBY");
         });
         
         // 机器人位置控制
@@ -181,14 +208,10 @@ public:
                 } else if (action == "climb") {
                     command = "CLIMB";
                 } else {
-                    return false;
+                    return CreateBoardError("不支持的位置控制动作");
                 }
                 
-                cJSON* result = nodehexa_controller_->SendCommand(command.c_str());
-                bool success = (result != nullptr && cJSON_HasObjectItem(result, "status") && 
-                               strcmp(cJSON_GetObjectItem(result, "status")->valuestring, "success") == 0);
-                cJSON_Delete(result);
-                return success;
+                return nodehexa_controller_->SendCommand(command.c_str());
             });
         
         // 机器人姿态控制
@@ -209,14 +232,10 @@ public:
                 } else if (action == "twist") {
                     command = "TWIST";
                 } else {
-                    return false;
+                    return CreateBoardError("不支持的姿态控制动作");
                 }
                 
-                cJSON* result = nodehexa_controller_->SendCommand(command.c_str());
-                bool success = (result != nullptr && cJSON_HasObjectItem(result, "status") && 
-                               strcmp(cJSON_GetObjectItem(result, "status")->valuestring, "success") == 0);
-                cJSON_Delete(result);
-                return success;
+                return nodehexa_controller_->SendCommand(command.c_str());
             });
         // 机器人速度调节
         mcp.AddTool("self.robot.speed_control", "机器人的速度调节。机器人可以设置以下速度档位：\n"
@@ -229,14 +248,10 @@ public:
                 int level = 2;
                 if (!ParseSpeedLevel(speedLevel, level)) {
                     ESP_LOGW(kNodeHexaBoardTag, "未识别的 speed_level 参数: %s", speedLevel.c_str());
-                    return false;
+                    return CreateBoardError("不支持的速度档位");
                 }
                 
-                cJSON* result = nodehexa_controller_->SendSpeedLevelCommand(level);
-                bool success = (result != nullptr && cJSON_HasObjectItem(result, "status") && 
-                            strcmp(cJSON_GetObjectItem(result, "status")->valuestring, "success") == 0);
-                cJSON_Delete(result);
-                return success;
+                return nodehexa_controller_->SendSpeedLevelCommand(level);
             });
     }
 };
