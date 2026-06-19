@@ -2,6 +2,7 @@
 
 #include <esp_log.h>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 
 #define TAG "NoAudioCodec"
@@ -239,10 +240,10 @@ int NoAudioCodec::Write(const int16_t* data, int samples) {
 
 int NoAudioCodec::Read(int16_t* dest, int samples) {
     size_t bytes_read;
+    constexpr uint32_t kReadTimeoutMs = 200;
 
     std::vector<int32_t> bit32_buffer(samples);
-    if (i2s_channel_read(rx_handle_, bit32_buffer.data(), samples * sizeof(int32_t), &bytes_read, portMAX_DELAY) != ESP_OK) {
-        ESP_LOGE(TAG, "Read Failed!");
+    if (i2s_channel_read(rx_handle_, bit32_buffer.data(), samples * sizeof(int32_t), &bytes_read, kReadTimeoutMs) != ESP_OK) {
         return 0;
     }
 
