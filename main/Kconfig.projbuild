@@ -576,6 +576,9 @@ choice BOARD_TYPE
     config BOARD_TYPE_NODEHEXA
         bool "NodeHexa六足机器人"
         depends on IDF_TARGET_ESP32S3
+    config BOARD_TYPE_SPIPPY
+        bool "Spippy四足机器人"
+        depends on IDF_TARGET_ESP32S3
     config BOARD_TYPE_ELECTRON_BOT
         bool "electronBot"
         depends on IDF_TARGET_ESP32S3
@@ -1057,6 +1060,348 @@ menu "Camera Configuration"
             comment "For 180° rotation, use HFlip + VFlip instead of this option"
         endchoice
     endif
+endmenu
+
+menu "SPIPPY_CONFIG"
+    depends on BOARD_TYPE_SPIPPY
+
+    config SPIPPY_SERVO_PWM_FREQUENCY_HZ
+        int "Servo PWM frequency"
+        range 40 100
+        default 50
+        help
+            Spippy uses hobby servos with pulse widths up to 2500 us. Frequencies
+            above 100 Hz can shorten the frame below the configured pulse width
+            and must not be used for this board.
+
+    config SPIPPY_SERVO_MIN_PULSE_US
+        int "Servo minimum pulse width"
+        range 400 1000
+        default 500
+
+    config SPIPPY_SERVO_MAX_PULSE_US
+        int "Servo maximum pulse width"
+        range 2000 3000
+        default 2500
+
+    config SPIPPY_SERVO_THETA1_MIN_DEG
+        int "Theta1 minimum angle"
+        range -90 0
+        default -70
+
+    config SPIPPY_SERVO_THETA1_MAX_DEG
+        int "Theta1 maximum angle"
+        range 0 90
+        default 70
+
+    config SPIPPY_SERVO_THETA2_MIN_DEG
+        int "Theta2 minimum angle"
+        range 0 140
+        default 70
+
+    config SPIPPY_SERVO_THETA2_MAX_DEG
+        int "Theta2 maximum angle"
+        range 100 180
+        default 130
+
+    config SPIPPY_SERVO_SAFE_THETA1_DEG
+        int "Theta1 safe angle"
+        range -90 90
+        default 50
+
+    config SPIPPY_SERVO_SAFE_THETA2_DEG
+        int "Theta2 safe angle"
+        range 0 180
+        default 110
+
+    config SPIPPY_SERVO_MAX_STEP_DEG_PER_TICK
+        int "Servo maximum step per tick"
+        range 1 30
+        default 6
+
+    config SPIPPY_CONTINUOUS_MOVE_MAX_DURATION_S
+        int "Continuous movement safety timeout"
+        range 5 120
+        default 30
+        help
+            A continuous voice movement command automatically returns to stand
+            after this timeout if no explicit stop or renewed command arrives.
+
+    config SPIPPY_POWER_SAMPLE_COUNT
+        int "ADC samples per power tick"
+        range 1 64
+        default 8
+
+    config SPIPPY_POWER_ADC_DIVIDER_NUMERATOR
+        int "Battery divider numerator"
+        range 1 300
+        default 147
+
+    config SPIPPY_POWER_ADC_DIVIDER_DENOMINATOR
+        int "Battery divider denominator"
+        range 1 300
+        default 47
+
+    config SPIPPY_POWER_ADC_FALLBACK_FULL_SCALE_MV
+        int "ADC fallback full-scale voltage"
+        range 1000 3900
+        default 3300
+
+    config SPIPPY_POWER_LOW_VOLTAGE_MV
+        int "Low battery latch voltage"
+        range 5000 9000
+        default 7400
+
+    config SPIPPY_POWER_LOW_CONFIRM_COUNT
+        int "Low battery confirmation count"
+        range 1 20
+        default 3
+
+    config SPIPPY_POWER_RECOVER_VOLTAGE_MV
+        int "Low battery recovery voltage"
+        range 5000 10000
+        default 7600
+
+    config SPIPPY_POWER_RECOVER_CONFIRM_COUNT
+        int "Low battery recovery confirmation count"
+        range 1 40
+        default 5
+
+    config SPIPPY_LOW_POWER_CHAT_REMINDER_COOLDOWN_MS
+        int "Low battery conversation reminder cooldown"
+        range 30000 900000
+        default 180000
+        help
+            After the first conversation reminder in one low-power episode,
+            wait this long before appending another reminder to an ordinary
+            conversation. Explicit battery queries and rejected motion commands
+            already contain the reason and therefore do not get a duplicate
+            local reminder.
+
+    config SPIPPY_POWER_LOG_INTERVAL
+        int "Power log interval"
+        range 1 600
+        default 10
+
+    config SPIPPY_DISPLAY_I2C_PORT
+        int "OLED I2C port"
+        range 0 1
+        default 0
+
+    config SPIPPY_DISPLAY_I2C_FREQ_HZ
+        int "OLED I2C frequency"
+        range 100000 1000000
+        default 400000
+
+    config SPIPPY_DISPLAY_OLED_ADDR
+        hex "OLED I2C address"
+        range 0x3C 0x3D
+        default 0x3C
+
+    config SPIPPY_BUZZER_ENABLE
+        bool "Enable low-power buzzer alerts"
+        default y
+
+    config SPIPPY_BUZZER_GPIO
+        int "Buzzer GPIO"
+        depends on SPIPPY_BUZZER_ENABLE
+        range 0 48
+        default 45
+
+    config SPIPPY_BUZZER_LOW_POWER_ALERT_INITIAL_DELAY_MS
+        int "Low-power buzzer initial delay"
+        depends on SPIPPY_BUZZER_ENABLE
+        range 0 60000
+        default 8000
+
+    config SPIPPY_BUZZER_LOW_POWER_ALERT_INTERVAL_MS
+        int "Low-power buzzer recurring interval"
+        depends on SPIPPY_BUZZER_ENABLE
+        range 1000 60000
+        default 10000
+
+    config SPIPPY_TASK_BUZZER_PERIOD_MS
+        int "Buzzer task period"
+        depends on SPIPPY_BUZZER_ENABLE
+        range 5 100
+        default 10
+
+    config SPIPPY_SENSOR_ULTRASONIC_ENABLE
+        bool "Enable ultrasonic distance measurement"
+        default y
+
+    config SPIPPY_SENSOR_US_TRIGGER_PULSE_US
+        int "Ultrasonic trigger pulse width"
+        range 2 50
+        default 10
+
+    config SPIPPY_SENSOR_US_ECHO_TIMEOUT_US
+        int "Ultrasonic echo timeout"
+        range 5000 100000
+        default 30000
+
+    config SPIPPY_SENSOR_LOG_INTERVAL
+        int "Sensor log interval"
+        range 1 600
+        default 20
+
+    config SPIPPY_PROXIMITY_ENABLE
+        bool "Enable proximity interactions"
+        depends on SPIPPY_SENSOR_ULTRASONIC_ENABLE
+        default y
+
+    config SPIPPY_PROXIMITY_NEAR_ENTER_MM
+        int "Near enter threshold"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 100 3000
+        default 600
+
+    config SPIPPY_PROXIMITY_NEAR_EXIT_MM
+        int "Near exit threshold"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 100 3000
+        default 700
+
+    config SPIPPY_PROXIMITY_CLOSE_ENTER_MM
+        int "Close enter threshold"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 50 2000
+        default 350
+
+    config SPIPPY_PROXIMITY_CLOSE_EXIT_MM
+        int "Close exit threshold"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 50 2000
+        default 430
+
+    config SPIPPY_PROXIMITY_TOO_CLOSE_ENTER_MM
+        int "Too close threshold"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 50 1000
+        default 200
+
+    config SPIPPY_PROXIMITY_TOO_CLOSE_EXIT_MM
+        int "Too close exit threshold"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 50 1000
+        default 260
+
+    config SPIPPY_PROXIMITY_FORWARD_LIMIT_MM
+        int "Forward movement limit"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 50 1000
+        default 280
+
+    config SPIPPY_FORWARD_GUARD_RELEASE_MM
+        int "Forward guard release distance"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 100 1500
+        default 350
+        help
+            Once forward motion is blocked, valid distance samples must reach
+            this threshold before the guard can return to clear. It must be
+            greater than the forward movement limit to provide hysteresis.
+
+    config SPIPPY_FORWARD_GUARD_CLEAR_CONFIRM_COUNT
+        int "Valid clear samples required to release forward guard"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 1 10
+        default 2
+
+    config SPIPPY_FORWARD_GUARD_NO_ECHO_CLEAR_COUNT
+        int "Consecutive no-echo samples required to release forward guard"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 2 20
+        default 4
+        help
+            A timeout normally means no reflective target is in ultrasonic
+            range. Multiple consecutive timeouts are required so one lost echo
+            cannot clear a previously confirmed obstacle.
+
+    config SPIPPY_FORWARD_GUARD_ERROR_TO_UNKNOWN_COUNT
+        int "Sensor errors required to mark forward guard unknown"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 1 20
+        default 3
+
+    config SPIPPY_FORWARD_GUARD_STALE_TIMEOUT_MS
+        int "Forward guard sample stale timeout"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 200 5000
+        default 750
+        help
+            If the ultrasonic task stops publishing new samples for this long,
+            a clear state becomes unknown and active forward motion is stopped.
+
+    config SPIPPY_PROXIMITY_STABLE_CONFIRM_COUNT
+        int "Samples required to confirm a proximity zone"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 1 10
+        default 2
+
+    config SPIPPY_PROXIMITY_LOST_CONFIRM_COUNT
+        int "Invalid samples required to mark target lost"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 1 10
+        default 3
+
+    config SPIPPY_PROXIMITY_GLOBAL_COOLDOWN_MS
+        int "Proximity interaction cooldown"
+        depends on SPIPPY_PROXIMITY_ENABLE
+        range 1000 60000
+        default 15000
+
+    config SPIPPY_AUTONOMY_ENABLE
+        bool "Enable idle autonomy interactions"
+        default y
+
+    config SPIPPY_AUTONOMY_IDLE_TRIGGER_S
+        int "Idle seconds before autonomy arms"
+        depends on SPIPPY_AUTONOMY_ENABLE
+        range 5 3600
+        default 60
+
+    config SPIPPY_AUTONOMY_MIN_INTERVAL_S
+        int "Minimum autonomy interval seconds"
+        depends on SPIPPY_AUTONOMY_ENABLE
+        range 5 3600
+        default 120
+
+    config SPIPPY_AUTONOMY_MAX_INTERVAL_S
+        int "Maximum autonomy interval seconds"
+        depends on SPIPPY_AUTONOMY_ENABLE
+        range 5 7200
+        default 300
+
+    config SPIPPY_TASK_AUTONOMY_PERIOD_MS
+        int "Autonomy task period"
+        depends on SPIPPY_AUTONOMY_ENABLE
+        range 100 5000
+        default 1000
+
+    config SPIPPY_TASK_MOTION_PERIOD_MS
+        int "Motion and servo control task period"
+        range 5 1000
+        default 20
+        help
+            Motion generation and servo output are intentionally executed in the
+            same control tick so that one generated leg frame is applied atomically.
+
+    config SPIPPY_TASK_POWER_PERIOD_MS
+        int "Power task period"
+        range 10 5000
+        default 500
+
+    config SPIPPY_TASK_SENSOR_PERIOD_MS
+        int "Sensor task period"
+        range 10 5000
+        default 150
+
+    config SPIPPY_TASK_CONTROL_STACK_SIZE
+        int "Control task stack size"
+        range 4096 16384
+        default 8192
+
 endmenu
 
 menu "TAIJIPAI_S3_CONFIG"

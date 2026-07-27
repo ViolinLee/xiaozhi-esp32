@@ -1,0 +1,48 @@
+#pragma once
+
+#define SPIPPY_PIN_OLED_I2C_SCL          1
+#define SPIPPY_PIN_OLED_I2C_SDA          2
+
+#define SPIPPY_PIN_I2S_MIC_WS            4
+#define SPIPPY_PIN_I2S_MIC_SCK           5
+#define SPIPPY_PIN_I2S_MIC_DIN           6
+#define SPIPPY_PIN_I2S_SPK_DOUT          7
+#define SPIPPY_PIN_BAT_ADC               8
+
+#define SPIPPY_PIN_SERVO_FL1_PWM         9
+#define SPIPPY_PIN_SERVO_FL2_PWM         10
+#define SPIPPY_PIN_SERVO_BL2_PWM         11
+#define SPIPPY_PIN_SERVO_BL1_PWM         12
+#define SPIPPY_PIN_SERVO_EXT4_PWM        13
+#define SPIPPY_PIN_SERVO_EXT3_PWM        14
+#define SPIPPY_PIN_SERVO_BR1_PWM         21
+#define SPIPPY_PIN_SERVO_BR2_PWM         38
+#define SPIPPY_PIN_SERVO_FR2_PWM         39
+#define SPIPPY_PIN_SERVO_FR1_PWM         40
+#define SPIPPY_PIN_SERVO_EXT2_PWM        41
+#define SPIPPY_PIN_SERVO_EXT1_PWM        42
+
+#define SPIPPY_PIN_SERVO_01_PWM          SPIPPY_PIN_SERVO_FL1_PWM
+#define SPIPPY_PIN_SERVO_02_PWM          SPIPPY_PIN_SERVO_FL2_PWM
+#define SPIPPY_PIN_SERVO_03_PWM          SPIPPY_PIN_SERVO_BL1_PWM
+#define SPIPPY_PIN_SERVO_04_PWM          SPIPPY_PIN_SERVO_BL2_PWM
+#define SPIPPY_PIN_SERVO_05_PWM          SPIPPY_PIN_SERVO_FR1_PWM
+#define SPIPPY_PIN_SERVO_06_PWM          SPIPPY_PIN_SERVO_FR2_PWM
+#define SPIPPY_PIN_I2S_SPK_BCLK          15
+#define SPIPPY_PIN_I2S_SPK_LRCK          16
+#define SPIPPY_PIN_UART1_TX              17
+#define SPIPPY_PIN_UART1_RX              18
+#define SPIPPY_PIN_USB_D_MINUS           19
+#define SPIPPY_PIN_USB_D_PLUS            20
+#define SPIPPY_PIN_SERVO_07_PWM          SPIPPY_PIN_SERVO_BR1_PWM
+
+#define SPIPPY_PIN_SERVO_08_PWM          SPIPPY_PIN_SERVO_BR2_PWM
+#define SPIPPY_PIN_SERVO_09_PWM          SPIPPY_PIN_SERVO_EXT4_PWM
+#define SPIPPY_PIN_SERVO_10_PWM          SPIPPY_PIN_SERVO_EXT3_PWM
+#define SPIPPY_PIN_SERVO_11_PWM          SPIPPY_PIN_SERVO_EXT2_PWM
+#define SPIPPY_PIN_SERVO_12_PWM          SPIPPY_PIN_SERVO_EXT1_PWM
+#define SPIPPY_PIN_UART0_TX              43
+#define SPIPPY_PIN_UART0_RX              44
+#define SPIPPY_PIN_BUZZER_PWM            45
+#define SPIPPY_PIN_US_TRIG               48
+#define SPIPPY_PIN_US_ECHO               47

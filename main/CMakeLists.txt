@@ -829,6 +829,10 @@ elseif(CONFIG_BOARD_TYPE_YUNLIAO_S3)
     set(DEFAULT_EMOJI_COLLECTION twemoji_64)
 elseif(CONFIG_BOARD_TYPE_NODEHEXA)
     set(BOARD_TYPE "nodehexa")
+elseif(CONFIG_BOARD_TYPE_SPIPPY)
+    set(BOARD_TYPE "spippy")
+    set(BOARD_NAME "spippy")
+    set(DEFAULT_EMOJI_COLLECTION twemoji_64)
 elseif(CONFIG_BOARD_TYPE_WIRELESS_TAG_WTP4C5MP07S)
     set(BOARD_TYPE "wireless-tag-wtp4c5mp07s")
     set(BUILTIN_TEXT_FONT font_puhui_basic_30_4)
@@ -867,6 +871,24 @@ else()
     )
 endif()
 list(APPEND SOURCES ${BOARD_SOURCES})
+
+if(CONFIG_BOARD_TYPE_SPIPPY)
+    # BSP 文件显式列出，避免新增临时文件时被 GLOB 静默编进量产固件。
+    set(SPIPPY_MODULE_SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy/modules/buzzer_manager.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy/modules/calibration_service.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy/modules/forward_guard.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy/modules/low_power_reminder_policy.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy/modules/motion_engine.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy/modules/power_manager.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy/modules/sensor_manager.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy/modules/servo_manager.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy/modules/storage.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy/generated/spippy_faces.cc
+    )
+    list(APPEND SOURCES ${SPIPPY_MODULE_SOURCES})
+    list(APPEND INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/boards/spippy)
+endif()
 
 # Select audio processor according to Kconfig
 if(CONFIG_USE_AUDIO_PROCESSOR)
@@ -1030,6 +1052,16 @@ if(CONFIG_BOARD_TYPE_ESP_VOCAT)
     list(APPEND MAIN_PRIV_REQUIRES_EXTRA
         espressif__touch_slider_sensor
         espressif__touch_button_sensor
+    )
+endif()
+if(CONFIG_BOARD_TYPE_SPIPPY)
+    list(APPEND MAIN_PRIV_REQUIRES_EXTRA
+        esp_adc
+        esp_driver_ledc
+        esp_driver_mcpwm
+        esp_http_server
+        mdns
+        nvs_flash
     )
 endif()
 
