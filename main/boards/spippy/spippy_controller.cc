@@ -1561,8 +1561,13 @@ void SpippyController::HandleLowPower() {
     const DeviceState app_state = Application::GetInstance().GetDeviceState();
     const bool conversation_audio_active =
         app_state == kDeviceStateListening || app_state == kDeviceStateSpeaking;
+    const bool setup_flow_active =
+        app_state == kDeviceStateStarting ||
+        app_state == kDeviceStateWifiConfiguring ||
+        app_state == kDeviceStateActivating;
     /* 对话中不抢播；保留 pending，待 tts stop 时追加到在线回答末尾。 */
-    if (!conversation_audio_active &&
+    /* 配网和绑定期间同样保留 pending，进入待机后再提示，不能覆盖关键操作信息。 */
+    if (!conversation_audio_active && !setup_flow_active &&
         spippy_low_power_reminder_take_entry(&low_power_reminder_)) {
         ScheduleLowPowerVoiceReminder("entry_idle", false);
     }

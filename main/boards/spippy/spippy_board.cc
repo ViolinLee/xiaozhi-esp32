@@ -172,8 +172,8 @@ private:
             app.ToggleChatState();
         });
         boot_button_.OnLongPress([this]() {
-            if (display_ != nullptr) {
-                display_->ShowNotification(CurrentWebUrl());
+            if (spippy_display_ != nullptr) {
+                spippy_display_->ShowWebConsoleAddress(CurrentWebUrl());
             }
         });
     }

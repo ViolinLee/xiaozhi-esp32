@@ -112,6 +112,17 @@ SpippyDisplay::~SpippyDisplay() {
 void SpippyDisplay::SetupUI() {
     OledDisplay::SetupUI();
     DisplayLockGuard lock(this);
+
+    // Spippy owns its battery thresholds, safety latch, warning face, buzzer,
+    // and reminder timing. The generic OLED popup treats every 0-19% reading
+    // as an immediate low-battery warning, which conflicts with those rules
+    // and becomes exposed while the activation screen hides the face layer.
+    if (low_battery_popup_ != nullptr) {
+        lv_obj_del(low_battery_popup_);
+        low_battery_popup_ = nullptr;
+        low_battery_label_ = nullptr;
+    }
+
     auto screen = lv_screen_active();
     face_image_ = lv_image_create(screen);
     lv_obj_set_size(face_image_, 128, 64);
@@ -202,6 +213,7 @@ void SpippyDisplay::SetChatMessage(const char *role, const char *content) {
         if (activation_screen_visible_) {
             activation_screen_visible_ = false;
             lv_obj_remove_flag(face_image_, LV_OBJ_FLAG_HIDDEN);
+            UpdateBatteryIconLocked();
             RenderSelectedProfileLocked(esp_timer_get_time());
         }
         return;
@@ -218,6 +230,7 @@ void SpippyDisplay::SetChatMessage(const char *role, const char *content) {
     } else {
         lv_obj_remove_flag(face_image_, LV_OBJ_FLAG_HIDDEN);
     }
+    UpdateBatteryIconLocked();
 
     lv_anim_delete(chat_overlay_, ChatScrollExec);
     lv_obj_set_x(chat_overlay_, 0);
@@ -239,6 +252,7 @@ void SpippyDisplay::ClearChatMessages() {
     if (activation_screen_visible_) {
         activation_screen_visible_ = false;
         lv_obj_remove_flag(face_image_, LV_OBJ_FLAG_HIDDEN);
+        UpdateBatteryIconLocked();
         RenderSelectedProfileLocked(esp_timer_get_time());
     }
 }
@@ -506,7 +520,7 @@ void SpippyDisplay::UpdateBatteryIconLocked() {
     if (battery_container_ == nullptr) {
         return;
     }
-    if (!battery_valid_) {
+    if (!battery_valid_ || activation_screen_visible_) {
         lv_obj_add_flag(battery_container_, LV_OBJ_FLAG_HIDDEN);
         return;
     }
