@@ -61,10 +61,12 @@ NodeHexa 支持四档速度调节，可以灵活控制机器人的运动速度�
 ### 🔌 通信协议
 - **接口**: UART1 (GPIO17-TX, GPIO18-RX)
 - **波特率**: 115200
-- **数据格式**: JSON 格式指令传输
-- **响应机制**: 支持命令确认和状态反馈
+- **首选协议**: UART v2 二进制帧，UTF-8 JSON 载荷、CRC16-CCITT、请求序号
+- **兼容协议**: `$JSON\n`；启动 HELLO 在 500 ms 内无 V2 响应时自动回退
+- **响应机制**: V2 RESPONSE 必须与请求 `seq` 一致；EVENT 独立处理
 
-**指令格式**：
+V2 帧头为 `A5 4E 02`，最大载荷 512 字节；CRC 覆盖 `version` 至载荷末尾。旧主板继续使用：
+
 ```json
 // 运动控制指令
 ${"movementMode": 2}\n
@@ -180,9 +182,13 @@ NodeHexa ESP32-S3    六足机器人主板
 python test_serial.py /dev/ttyUSB0
 ```
 
-支持两种测试模式：
-1. **自动测试**: 自动执行所有运动命令
-2. **交互模式**: 手动输入命令进行测试
+默认使用 V2；连接旧主板时增加 `--protocol legacy`。无需串口的协议自检：
+
+```bash
+python test_serial.py --self-test
+```
+
+自检覆盖 CRC 标准向量、V2/legacy 连续解析、噪声恢复、CRC 错误、超长载荷，以及 EVENT 插入 RESPONSE 前的消息类型隔离。
 
 
 ## 小智后台配置

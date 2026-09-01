@@ -2,6 +2,10 @@
 
 #include <cstring>
 #include <utility>
+#include <vector>
+
+#include <esp_app_desc.h>
+#include <esp_timer.h>
 
 namespace {
 
@@ -12,10 +16,12 @@ constexpr const char* kCommandBusyMessage = "串口忙，正在等待上一条�
 constexpr const char* kTimeoutMessage = "等待六足主板响应超时";
 constexpr uint32_t kUartTaskStackSize = 4096;
 constexpr UBaseType_t kUartTaskPriority = 5;
+constexpr uint32_t kHeartbeatIntervalMs = 2000;
 
 bool JsonStringEquals(const cJSON* root, const char* key, const char* expected) {
     const cJSON* item = cJSON_GetObjectItemCaseSensitive(root, key);
-    return cJSON_IsString(item) && item->valuestring != nullptr && strcmp(item->valuestring, expected) == 0;
+    return cJSON_IsString(item) && item->valuestring != nullptr &&
+           strcmp(item->valuestring, expected) == 0;
 }
 
 std::string GetJsonString(const cJSON* root, const char* key, const char* fallback = "") {
@@ -27,7 +33,8 @@ std::string GetJsonString(const cJSON* root, const char* key, const char* fallba
 }
 
 bool ContainsLowBatteryText(const std::string& text) {
-    return text.find("电量低") != std::string::npos || text.find("low battery") != std::string::npos;
+    return text.find("电量低") != std::string::npos ||
+           text.find("low battery") != std::string::npos;
 }
 
 cJSON* CreateResultJson(const char* status, const char* message, const char* code = nullptr) {
@@ -48,6 +55,7 @@ NodeHexaController::NodeHexaController() {
     command_mutex_ = xSemaphoreCreateMutex();
     state_mutex_ = xSemaphoreCreateMutex();
     response_event_group_ = xEventGroupCreate();
+    tx_mutex_ = xSemaphoreCreateMutex();
     ESP_LOGI(TAG, "NodeHexaController 构造函数");
 }
 
@@ -68,6 +76,10 @@ NodeHexaController::~NodeHexaController() {
         vSemaphoreDelete(state_mutex_);
         state_mutex_ = nullptr;
     }
+    if (tx_mutex_ != nullptr) {
+        vSemaphoreDelete(tx_mutex_);
+        tx_mutex_ = nullptr;
+    }
     ESP_LOGI(TAG, "NodeHexaController 析构函数");
 }
 
@@ -76,12 +88,9 @@ void NodeHexaController::Initialize() {
         return;
     }
     ESP_LOGI(TAG, "初始化 NodeHexaController");
-    xTaskCreate(NodeHexaController::UartRxTask,
-                "nodehexa_uart_rx",
-                kUartTaskStackSize,
-                this,
-                kUartTaskPriority,
-                &uart_rx_task_handle_);
+    xTaskCreate(NodeHexaController::UartRxTask, "nodehexa_uart_rx", kUartTaskStackSize, this,
+                kUartTaskPriority, &uart_rx_task_handle_);
+    NegotiateProtocol();
 }
 
 void NodeHexaController::SetLowBatteryCallback(LowBatteryCallback callback) {
@@ -136,64 +145,49 @@ void NodeHexaController::UartRxTask(void* arg) {
 }
 
 void NodeHexaController::UartRxLoop() {
-    std::string buffer;
-    buffer.reserve(UART_BUFFER_SIZE);
-    bool frame_started = false;
-
     while (true) {
         uint8_t byte = 0;
         const int read_len = uart_read_bytes(UART_NUM_1, &byte, 1, pdMS_TO_TICKS(20));
-        if (read_len <= 0) {
-            continue;
+        const uint32_t now_ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+        if (read_len > 0) {
+            nodehexa_uart::Frame frame{};
+            if (parser_.Feed(byte, now_ms, frame))
+                HandleIncomingFrame(frame);
+        } else {
+            parser_.PollTimeout(now_ms);
         }
-
-        const char c = static_cast<char>(byte);
-        if (!frame_started) {
-            if (c == '$') {
-                frame_started = true;
-                buffer.clear();
-            }
-            continue;
+        if (protocol_mode_ == ProtocolMode::V2 &&
+            now_ms - last_heartbeat_ms_ >= kHeartbeatIntervalMs) {
+            last_heartbeat_ms_ = now_ms;
+            SendV2Frame(nodehexa_uart::MessageType::Heartbeat, 0, NextSequence(), "{}");
         }
-
-        if (c == '\n' || c == '\r') {
-            if (!buffer.empty()) {
-                HandleIncomingFrame(buffer);
-            }
-            buffer.clear();
-            frame_started = false;
-            continue;
-        }
-
-        if (buffer.size() >= UART_BUFFER_SIZE - 1) {
-            ESP_LOGW(TAG, "UART帧过长，丢弃当前帧");
-            buffer.clear();
-            frame_started = false;
-            continue;
-        }
-
-        buffer.push_back(c);
     }
 }
 
-void NodeHexaController::HandleIncomingFrame(const std::string& frame) {
-    ESP_LOGD(TAG, "UART接收帧: %s", frame.c_str());
+void NodeHexaController::HandleIncomingFrame(const nodehexa_uart::Frame& frame) {
+    const std::string payload(reinterpret_cast<const char*>(frame.payload), frame.payload_length);
+    ESP_LOGD(TAG, "UART接收消息: format=%s type=%u seq=%u",
+             frame.format == nodehexa_uart::Format::V2 ? "v2" : "legacy",
+             static_cast<unsigned>(frame.message_type), frame.sequence);
 
-    cJSON* root = cJSON_Parse(frame.c_str());
+    cJSON* root = cJSON_Parse(payload.c_str());
     if (root == nullptr || !cJSON_IsObject(root)) {
         if (root != nullptr) {
             cJSON_Delete(root);
         }
-        ESP_LOGW(TAG, "收到无法解析的UART数据: %s", frame.c_str());
+        ESP_LOGW(TAG, "收到无法解析的UART JSON");
         return;
     }
 
-    if (cJSON_GetObjectItemCaseSensitive(root, "event") != nullptr) {
+    const bool is_v2 = frame.format == nodehexa_uart::Format::V2;
+    if ((is_v2 && frame.message_type == nodehexa_uart::MessageType::Event) ||
+        (!is_v2 && cJSON_GetObjectItemCaseSensitive(root, "event") != nullptr)) {
         HandleIncomingEvent(root);
-    } else if (cJSON_GetObjectItemCaseSensitive(root, "status") != nullptr) {
-        HandleIncomingResponse(root, frame);
+    } else if ((is_v2 && frame.message_type == nodehexa_uart::MessageType::Response) ||
+               (!is_v2 && cJSON_GetObjectItemCaseSensitive(root, "status") != nullptr)) {
+        HandleIncomingResponse(root, payload, frame.sequence, is_v2);
     } else {
-        ESP_LOGW(TAG, "收到未知UART消息: %s", frame.c_str());
+        ESP_LOGW(TAG, "收到未知UART消息类型");
     }
 
     cJSON_Delete(root);
@@ -211,19 +205,18 @@ void NodeHexaController::HandleIncomingEvent(cJSON* root) {
     ESP_LOGI(TAG, "收到异步事件: %s", event_name.c_str());
 }
 
-void NodeHexaController::HandleIncomingResponse(cJSON* root, const std::string& frame) {
+void NodeHexaController::HandleIncomingResponse(cJSON* root, const std::string& payload,
+                                                uint16_t sequence, bool is_v2) {
     if (IsLowBatteryPayload(root)) {
         const std::string message = GetJsonString(root, "message", kLowBatteryMessage);
         ESP_LOGW(TAG, "收到六足主板低电量响应: %s", message.c_str());
         NotifyLowBattery(message);
-    } else if (JsonStringEquals(root, "status", "success")) {
-        ClearLowBatteryState();
     }
 
     bool delivered = false;
     if (state_mutex_ != nullptr && xSemaphoreTake(state_mutex_, pdMS_TO_TICKS(20)) == pdTRUE) {
-        if (awaiting_response_) {
-            pending_response_ = frame;
+        if (awaiting_response_ && (!is_v2 || sequence == pending_sequence_)) {
+            pending_response_ = payload;
             delivered = true;
         }
         xSemaphoreGive(state_mutex_);
@@ -232,7 +225,7 @@ void NodeHexaController::HandleIncomingResponse(cJSON* root, const std::string& 
     if (delivered) {
         xEventGroupSetBits(response_event_group_, kResponseReadyBit);
     } else {
-        ESP_LOGW(TAG, "收到未匹配请求的响应: %s", frame.c_str());
+        ESP_LOGW(TAG, "收到未匹配请求的响应: seq=%u", sequence);
     }
 }
 
@@ -257,12 +250,71 @@ void NodeHexaController::NotifyLowBattery(const std::string& message) {
     }
 }
 
-void NodeHexaController::ClearLowBatteryState() {
+void NodeHexaController::ClearLowBatteryStateIfExplicitHealthy(const cJSON* root) {
+    const cJSON* power = cJSON_GetObjectItemCaseSensitive(root, "power");
+    const cJSON* latched = cJSON_IsObject(power)
+                               ? cJSON_GetObjectItemCaseSensitive(power, "lowBatteryLatched")
+                               : nullptr;
+    if (!cJSON_IsFalse(latched))
+        return;
     if (state_mutex_ != nullptr && xSemaphoreTake(state_mutex_, pdMS_TO_TICKS(20)) == pdTRUE) {
         low_battery_active_ = false;
         low_battery_notified_ = false;
         xSemaphoreGive(state_mutex_);
     }
+}
+
+void NodeHexaController::NegotiateProtocol() {
+    if (command_mutex_ == nullptr || state_mutex_ == nullptr || response_event_group_ == nullptr) {
+        protocol_mode_ = ProtocolMode::Legacy;
+        return;
+    }
+    if (xSemaphoreTake(command_mutex_, pdMS_TO_TICKS(HELLO_TIMEOUT_MS)) != pdTRUE) {
+        protocol_mode_ = ProtocolMode::Legacy;
+        return;
+    }
+    const uint16_t sequence = NextSequence();
+    xEventGroupClearBits(response_event_group_, kResponseReadyBit);
+    if (xSemaphoreTake(state_mutex_, pdMS_TO_TICKS(20)) == pdTRUE) {
+        awaiting_response_ = true;
+        pending_sequence_ = sequence;
+        pending_response_.clear();
+        xSemaphoreGive(state_mutex_);
+    }
+    const std::string hello =
+        std::string("{\"device\":\"xiaozhi\",\"deviceId\":\"nodehexa-bsp\",\"firmware\":\"") +
+        esp_app_get_description()->version + "\",\"protocols\":[2],\"capabilities\":[\"control\"]}";
+    bool v2_ready = false;
+    if (SendV2Frame(nodehexa_uart::MessageType::Hello, 0x02, sequence, hello)) {
+        const EventBits_t bits =
+            xEventGroupWaitBits(response_event_group_, kResponseReadyBit, pdTRUE, pdFALSE,
+                                pdMS_TO_TICKS(HELLO_TIMEOUT_MS));
+        if ((bits & kResponseReadyBit) != 0) {
+            std::string response;
+            if (xSemaphoreTake(state_mutex_, pdMS_TO_TICKS(20)) == pdTRUE) {
+                response = pending_response_;
+                xSemaphoreGive(state_mutex_);
+            }
+            cJSON* root = cJSON_Parse(response.c_str());
+            if (root != nullptr && JsonStringEquals(root, "device", "nodehexa")) {
+                const cJSON* protocol = cJSON_GetObjectItemCaseSensitive(root, "protocol");
+                v2_ready = cJSON_IsNumber(protocol) && protocol->valueint == 2;
+                if (v2_ready)
+                    ClearLowBatteryStateIfExplicitHealthy(root);
+            }
+            if (root != nullptr)
+                cJSON_Delete(root);
+        }
+    }
+    if (xSemaphoreTake(state_mutex_, pdMS_TO_TICKS(20)) == pdTRUE) {
+        awaiting_response_ = false;
+        pending_sequence_ = 0;
+        pending_response_.clear();
+        xSemaphoreGive(state_mutex_);
+    }
+    protocol_mode_ = v2_ready ? ProtocolMode::V2 : ProtocolMode::Legacy;
+    xSemaphoreGive(command_mutex_);
+    ESP_LOGI(TAG, "NodeHexa UART protocol: %s", v2_ready ? "v2" : "legacy fallback");
 }
 
 cJSON* NodeHexaController::SendJsonCommandAndWait(cJSON* json_cmd) {
@@ -272,7 +324,7 @@ cJSON* NodeHexaController::SendJsonCommandAndWait(cJSON* json_cmd) {
     }
 
     char* json_str = cJSON_PrintUnformatted(json_cmd);
-    const std::string uart_command = std::string("$") + (json_str != nullptr ? json_str : "{}") + "\n";
+    const std::string payload = json_str != nullptr ? json_str : "{}";
     if (json_str != nullptr) {
         cJSON_free(json_str);
     }
@@ -283,24 +335,28 @@ cJSON* NodeHexaController::SendJsonCommandAndWait(cJSON* json_cmd) {
     }
 
     xEventGroupClearBits(response_event_group_, kResponseReadyBit);
+    const ProtocolMode mode = protocol_mode_;
+    const uint16_t sequence = mode == ProtocolMode::V2 ? NextSequence() : 0;
     if (xSemaphoreTake(state_mutex_, pdMS_TO_TICKS(20)) == pdTRUE) {
         pending_response_.clear();
         awaiting_response_ = true;
+        pending_sequence_ = sequence;
         xSemaphoreGive(state_mutex_);
     }
 
     cJSON* result = nullptr;
-    if (!SendUartCommand(uart_command)) {
+    const bool sent = mode == ProtocolMode::V2 ? SendV2Frame(nodehexa_uart::MessageType::Request,
+                                                             0x02, sequence, payload)
+                                               : SendLegacyCommand(payload);
+    if (!sent) {
         result = CreateResultJson("error", "UART发送失败");
         goto cleanup;
     }
 
     {
-        const EventBits_t bits = xEventGroupWaitBits(response_event_group_,
-                                                     kResponseReadyBit,
-                                                     pdTRUE,
-                                                     pdFALSE,
-                                                     pdMS_TO_TICKS(UART_TIMEOUT_MS));
+        const EventBits_t bits =
+            xEventGroupWaitBits(response_event_group_, kResponseReadyBit, pdTRUE, pdFALSE,
+                                pdMS_TO_TICKS(UART_TIMEOUT_MS));
         if ((bits & kResponseReadyBit) == 0) {
             result = CreateResultJson("error", kTimeoutMessage);
             goto cleanup;
@@ -336,6 +392,7 @@ cJSON* NodeHexaController::SendJsonCommandAndWait(cJSON* json_cmd) {
 cleanup:
     if (xSemaphoreTake(state_mutex_, pdMS_TO_TICKS(20)) == pdTRUE) {
         awaiting_response_ = false;
+        pending_sequence_ = 0;
         pending_response_.clear();
         xSemaphoreGive(state_mutex_);
     }
@@ -347,15 +404,37 @@ cleanup:
     return result;
 }
 
-bool NodeHexaController::SendUartCommand(const std::string& command) {
-    const int written = uart_write_bytes(UART_NUM_1, command.c_str(), command.length());
-    if (written == static_cast<int>(command.length())) {
-        ESP_LOGD(TAG, "UART发送成功: %s", command.c_str());
-        return true;
-    }
+bool NodeHexaController::SendLegacyCommand(const std::string& payload) {
+    const std::string frame = "$" + payload + "\n";
+    if (tx_mutex_ == nullptr || xSemaphoreTake(tx_mutex_, pdMS_TO_TICKS(100)) != pdTRUE)
+        return false;
+    const int written = uart_write_bytes(UART_NUM_1, frame.data(), frame.size());
+    xSemaphoreGive(tx_mutex_);
+    return written == static_cast<int>(frame.size());
+}
 
-    ESP_LOGE(TAG, "UART发送失败: 期望 %zu 字节, 实际发送 %d 字节", command.length(), written);
-    return false;
+bool NodeHexaController::SendV2Frame(nodehexa_uart::MessageType type, uint8_t flags,
+                                     uint16_t sequence, const std::string& payload) {
+    if (payload.size() > nodehexa_uart::kMaxPayloadLength)
+        return false;
+    std::vector<uint8_t> frame;
+    if (!nodehexa_uart::EncodeV2(type, flags, sequence,
+                                 reinterpret_cast<const uint8_t*>(payload.data()),
+                                 static_cast<uint16_t>(payload.size()), frame)) {
+        return false;
+    }
+    if (tx_mutex_ == nullptr || xSemaphoreTake(tx_mutex_, pdMS_TO_TICKS(100)) != pdTRUE)
+        return false;
+    const int written = uart_write_bytes(UART_NUM_1, frame.data(), frame.size());
+    xSemaphoreGive(tx_mutex_);
+    return written == static_cast<int>(frame.size());
+}
+
+uint16_t NodeHexaController::NextSequence() {
+    uint16_t sequence = next_sequence_.fetch_add(1, std::memory_order_relaxed);
+    if (sequence == 0)
+        sequence = next_sequence_.fetch_add(1, std::memory_order_relaxed);
+    return sequence;
 }
 
 int16_t NodeHexaController::CommandToMovementMode(const std::string& command) {
