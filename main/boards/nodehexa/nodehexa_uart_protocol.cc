@@ -103,12 +103,19 @@ bool Parser::Feed(uint8_t byte, uint32_t now_ms, Frame& frame) {
             }
             return false;
         case State::SeekMagic1:
-            state_ = byte == kMagic1 ? State::V2Header
-                                     : (byte == kMagic0 ? State::SeekMagic1 : State::Seek);
-            if (byte == kMagic1)
+            if (byte == kMagic1) {
                 StartV2(now_ms);
+            } else if (byte == kMagic0) {
+                state_ = State::SeekMagic1;
+            } else {
+                ResetFrame();
+            }
             return false;
         case State::LegacyPayload:
+            if (byte == '$') {
+                StartLegacy(now_ms);
+                return false;
+            }
             if (byte == '\r' || byte == '\n') {
                 if (payload_index_ == 0) {
                     ResetFrame();

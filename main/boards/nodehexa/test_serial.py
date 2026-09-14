@@ -57,6 +57,10 @@ class StreamParser:
                 newline = self.buffer.find(b"\n")
                 carriage = self.buffer.find(b"\r")
                 ends = [index for index in (newline, carriage) if index >= 0]
+                next_start = self.buffer.find(b"$", 1)
+                if next_start >= 0 and (not ends or next_start < min(ends)):
+                    del self.buffer[:next_start]
+                    continue
                 if not ends:
                     if len(self.buffer) > MAX_PAYLOAD + 1:
                         self.length_errors += 1
@@ -113,6 +117,9 @@ def run_self_test():
         frames.extend(parser.feed(bytes([byte])))
     assert frames[0] == ("v2", TYPE_REQUEST, 42, payload)
     assert frames[1] == ("legacy", TYPE_RESPONSE, 0, b'{"status":"success"}')
+    assert StreamParser().feed(b'$truncated${"status":"success"}\n') == [
+        ("legacy", TYPE_RESPONSE, 0, b'{"status":"success"}')
+    ]
     damaged = bytearray(encoded)
     damaged[-1] ^= 0xFF
     assert parser.feed(damaged) == []
@@ -157,6 +164,16 @@ class SerialConsole:
                 print(frame_format, message_type, sequence, payload.decode("utf-8", errors="replace"))
 
 
+def motion_payload(mode, count=3):
+    names = ("standby", "forward", "forwardfast", "backward", "turnleft", "turnright",
+             "shiftleft", "shiftright", "climb", "rotatex", "rotatey", "rotatez", "twist")
+    if not 0 <= mode < len(names) or not 1 <= count <= 10:
+        raise ValueError("mode must be 0-12; count must be 1-10")
+    if mode == 0:
+        return {"stop": True, "movementMode": 1}
+    return {"mode": names[mode], "cycles" if mode >= 9 else "steps": count}
+
+
 def main():
     argument_parser = argparse.ArgumentParser()
     argument_parser.add_argument("port", nargs="?", default="/dev/ttyUSB0")
@@ -169,16 +186,25 @@ def main():
     console = SerialConsole(args.port, args.protocol)
     try:
         while True:
-            value = input("movement mode 0-12, speed 0-3 as sN, q to quit: ").strip().lower()
+            value = input("mode 0-12 [count 1-10], s0-s3 speed, p showtime/freestyle/beatsway, q: ").strip().lower()
             if value == "q":
                 break
-            if value.startswith("s"):
-                console.send_json({"speedLevel": int(value[1:])})
+            if value.startswith("p "):
+                name = value[2:].strip()
+                if name not in ("showtime", "freestyle", "beatsway"):
+                    print("unknown performance")
+                    continue
+                console.send_json({"performance": name, "repeat": False})
+            elif value.startswith("s"):
+                level = int(value[1:])
+                if not 0 <= level <= 3:
+                    raise ValueError("speedLevel must be 0-3")
+                console.send_json({"speedLevel": level})
             else:
-                mode = int(value)
-                if not 0 <= mode <= 12:
-                    raise ValueError("movement mode must be 0-12")
-                console.send_json({"movementMode": 1 << mode})
+                parts = value.split()
+                mode = int(parts[0])
+                count = int(parts[1]) if len(parts) > 1 else (1 if mode >= 9 else 3)
+                console.send_json(motion_payload(mode, count))
             console.read_for()
     finally:
         console.close()

@@ -6,6 +6,9 @@
 
 ## 简介
 
+> 2026-09 升级：语音移动默认 3 步后自动停止，姿态默认一个完整周期；新增登场秀、自由舞、
+> 律动与状态查询。旧 MCP 工具名保留，UART 同时兼容 v2 和 legacy 封装。
+
 NodeHexa 是一个基于 ESP32-S3 的六足机器人语音控制扩展板，作为六足机器人主板的智能语音交互模块。它集成了小智 AI 语音助手，能够通过自然语言与用户对话，并将语音指令转换为运动控制命令，通过 UART 串口通信发送给六足机器人主板，从而实现语音控制六足机器人的功能。
 
 - 🤖 **六足机器人项目**: [NodeHexa](https://github.com/ViolinLee/NodeHexa)
@@ -63,13 +66,16 @@ NodeHexa 支持四档速度调节，可以灵活控制机器人的运动速度�
 - **波特率**: 115200
 - **首选协议**: UART v2 二进制帧，UTF-8 JSON 载荷、CRC16-CCITT、请求序号
 - **兼容协议**: `$JSON\n`；启动 HELLO 在 500 ms 内无 V2 响应时自动回退
-- **响应机制**: V2 RESPONSE 必须与请求 `seq` 一致；EVENT 独立处理
+- **响应机制**: V2 RESPONSE 必须与请求封装和 `seq` 一致；EVENT 独立处理。MCP 先返回 queued，后台工作任务等主板回执，可用 `self.robot.status` 查询最近结果。
 
 V2 帧头为 `A5 4E 02`，最大载荷 512 字节；CRC 覆盖 `version` 至载荷末尾。旧主板继续使用：
 
 ```json
-// 运动控制指令
-${"movementMode": 2}\n
+// 有限运动：新旧封装使用相同业务JSON，主板需支持steps
+${"mode":"forward","steps":3}\n
+
+// 停止：同时兼容旧主板
+${"stop":true,"movementMode":1}\n
 
 // 速度调节指令
 ${"speedLevel": 2}\n
