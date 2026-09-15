@@ -97,7 +97,10 @@ def github_request(method, url, token, payload=None, data=None, content_type=Non
     except HTTPError as error:
         response_data = error.read().decode("utf-8", errors="replace")
         try:
-            message = json.loads(response_data).get("message", response_data)
+            error_payload = json.loads(response_data)
+            message = error_payload.get("message", response_data)
+            if error_payload.get("errors"):
+                message = f"{message}: {json.dumps(error_payload['errors'], ensure_ascii=False)}"
         except json.JSONDecodeError:
             message = response_data or str(error)
         raise RuntimeError(f"GitHub API {error.code}: {message}") from error
@@ -437,8 +440,8 @@ def main():
         # 为每个文件生成对应的 release notes
         pass  # 将在循环中为每个文件单独生成
 
-    target_commitish = args.target or subprocess.run(
-        ['git', 'rev-parse', 'HEAD'],
+    target_commitish = subprocess.run(
+        ['git', 'rev-parse', args.target or 'HEAD'],
         capture_output=True,
         text=True,
         check=True,
