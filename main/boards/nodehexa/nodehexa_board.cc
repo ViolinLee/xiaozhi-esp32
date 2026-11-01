@@ -4,7 +4,6 @@
 #include <ssid_manager.h>
 #include <wifi_manager.h>
 #include <cctype>
-#include <stdexcept>
 
 #include "application.h"
 #include "assets/lang_config.h"
@@ -21,21 +20,19 @@
 
 static const char* kNodeHexaBoardTag = "NodeHexa";
 
-extern void InitializeNodeHexaController();
-
 namespace {
 
-cJSON* CreateBoardError(const char* message) { throw std::invalid_argument(message); }
+ToolResult CreateBoardError(const char* message) { return std::unexpected(std::string(message)); }
 
-cJSON* CheckedResult(cJSON* result) {
+ToolResult CheckedResult(cJSON* result) {
     if (!result)
-        throw std::runtime_error("控制器结果分配失败");
+        return CreateBoardError("控制器结果分配失败");
     const cJSON* status = cJSON_GetObjectItemCaseSensitive(result, "status");
     if (cJSON_IsString(status) && std::string(status->valuestring) == "error") {
         const cJSON* message = cJSON_GetObjectItemCaseSensitive(result, "message");
         const std::string text = cJSON_IsString(message) ? message->valuestring : "控制失败";
         cJSON_Delete(result);
-        throw std::runtime_error(text);
+        return std::unexpected(text);
     }
     return result;
 }
@@ -185,10 +182,18 @@ public:
     void InitializeTools() {
         auto& mcp = McpServer::GetInstance();
 
+        mcp.AddTool("self.system.reconfigure_wifi",
+                    "重新配网、更换 WiFi：结束当前对话并进入 WiFi 配网模式。"
+                    "调用前必须向用户确认，因为当前网络连接和语音对话将会断开。",
+                    PropertyList(), [this](const PropertyList&) -> ToolResult {
+                        EnterWifiConfigMode();
+                        return true;
+                    });
+
         // 机器人待机状态
         mcp.AddTool("self.robot.standby",
                     "停止机器人运动和表演。听到停止、停下、别动、待机时调用，无需参数。",
-                    PropertyList(), [this](const PropertyList& properties) -> ReturnValue {
+                    PropertyList(), [this](const PropertyList& properties) -> ToolResult {
                         return CheckedResult(nodehexa_controller_->SendCommand("STANDBY"));
                     });
 
@@ -204,10 +209,10 @@ public:
             "不支持无限持续或精确厘米/"
             "角度，不得把一直走解释为无限运动。queued仅表示已排队，可用status查询主板回执。",
             PropertyList({
-                Property("action", kPropertyTypeString),
+                Property("action", kPropertyTypeString).SetMaxLength(64),
                 Property("steps", kPropertyTypeInteger, 3, 1, 10),
             }),
-            [this](const PropertyList& properties) -> ReturnValue {
+            [this](const PropertyList& properties) -> ToolResult {
                 const std::string action =
                     nodehexa_actions::Motion(properties["action"].value<std::string>());
                 std::string command;
@@ -244,10 +249,10 @@ public:
                     "rotate_x/摇头、rotate_y/耸肩、rotate_z/扭身体、twist/扭屁股。"
                     "cycles为完整动作次数，默认1，范围1到10，做完自动停止。",
                     PropertyList({
-                        Property("action", kPropertyTypeString),
+                        Property("action", kPropertyTypeString).SetMaxLength(64),
                         Property("cycles", kPropertyTypeInteger, 1, 1, 10),
                     }),
-                    [this](const PropertyList& properties) -> ReturnValue {
+                    [this](const PropertyList& properties) -> ToolResult {
                         const std::string action =
                             nodehexa_actions::Motion(properties["action"].value<std::string>());
                         std::string command;
@@ -267,22 +272,25 @@ public:
                         return CheckedResult(nodehexa_controller_->SendCommand(
                             command, properties["cycles"].value<int>()));
                     });
-        mcp.AddTool(
-            "self.robot.performance",
-            "让六足机器人表演一轮，结束自动停止。"
-            "action: "
-            "showtime/登场秀、freestyle/自由舞/跳舞、beatsway/律动。说表演登场秀时用showtime。",
-            PropertyList({Property("action", kPropertyTypeString)}),
-            [this](const PropertyList& properties) -> ReturnValue {
-                return CheckedResult(nodehexa_controller_->SendPerformanceCommand(
-                    properties["action"].value<std::string>()));
-            });
+        mcp.AddTool("self.robot.performance",
+                    "让六足机器人表演一轮，结束自动停止。"
+                    "action: "
+                    "showtime/登场秀、freestyle/自由舞/跳舞、beatsway/律动；"
+                    "attack/威慑攻击（抬起前腿开合、上下戳动）、greeting/迎宾致意、"
+                    "curiosity/好奇探察。后三项需要支持它们的六足主板固件（本次适配3.0.2）。"
+                    "每次调用只表演一次，不支持循环；不要自动重发超时的动作。"
+                    "queued只表示排队，status可查询主板是否接收，不代表动作完成。",
+                    PropertyList({Property("action", kPropertyTypeString).SetMaxLength(64)}),
+                    [this](const PropertyList& properties) -> ToolResult {
+                        return CheckedResult(nodehexa_controller_->SendPerformanceCommand(
+                            properties["action"].value<std::string>()));
+                    });
         mcp.AddTool(
             "self.robot.status",
             "查询六足主板协议、能力声明、低电量状态及最近命令回执。"
             "queued不代表执行成功；lastResult是接收回执，不是运动完成通知。不要在每次前进前查询。",
-            PropertyList(), [this](const PropertyList&) -> ReturnValue {
-                return nodehexa_controller_->GetStatus();
+            PropertyList(), [this](const PropertyList&) -> ToolResult {
+                return CheckedResult(nodehexa_controller_->GetStatus());
             });
         // 机器人速度调节
         mcp.AddTool("self.robot.speed_control",
@@ -291,9 +299,9 @@ public:
                     "(0.5倍速，默认)\nfast: 快速 (1.0倍速)\n"
                     "参数 speed_level 建议使用 slowest/slow/medium/fast，兼容 0/1/2/3。",
                     PropertyList({
-                        Property("speed_level", kPropertyTypeString),
+                        Property("speed_level", kPropertyTypeString).SetMaxLength(32),
                     }),
-                    [this](const PropertyList& properties) -> ReturnValue {
+                    [this](const PropertyList& properties) -> ToolResult {
                         const std::string& speedLevel =
                             properties["speed_level"].value<std::string>();
                         int level = 2;

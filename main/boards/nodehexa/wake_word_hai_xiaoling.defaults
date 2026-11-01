@@ -1,0 +1,11 @@
+# NodeHexa exhibition wake-word profile. Applied by build_hai_xiaoling.py.
+CONFIG_LANGUAGE_ZH_CN=y
+CONFIG_WAKE_WORD_DISABLED=n
+CONFIG_USE_ESP_WAKE_WORD=n
+CONFIG_USE_AFE_WAKE_WORD=n
+CONFIG_USE_CUSTOM_WAKE_WORD=y
+CONFIG_SR_MN_CN_MULTINET6_QUANT=y
+CONFIG_CUSTOM_WAKE_WORD="hai xiao ling"
+CONFIG_CUSTOM_WAKE_WORD_DISPLAY="嗨小灵"
+# Initial threshold; verify recognition and false triggers on the actual robot.
+CONFIG_CUSTOM_WAKE_WORD_THRESHOLD=50

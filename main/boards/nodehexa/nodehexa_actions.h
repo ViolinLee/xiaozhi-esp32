@@ -47,6 +47,15 @@ inline std::string Performance(const std::string& input) {
         return "freestyle";
     if (token == "beatsway" || token == "律动" || token == "节奏摇摆")
         return "beatsway";
+    if (token == "attack" || token == "threatdisplay" || token == "攻击" || token == "威慑攻击" ||
+        token == "威慑")
+        return "attack";
+    if (token == "greeting" || token == "welcomeritual" || token == "迎宾致意" || token == "迎宾" ||
+        token == "打招呼")
+        return "greeting";
+    if (token == "curiosity" || token == "curiousexplorer" || token == "好奇探察" ||
+        token == "好奇" || token == "探察")
+        return "curiosity";
     return "";
 }
 }  // namespace nodehexa_actions
