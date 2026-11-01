@@ -82,11 +82,20 @@ static cJSON *MakeErrorJson(const char *code, const char *message)
 SpippyWebServer::SpippyWebServer(SpippyController *controller) : controller_(controller) {
 }
 
-SpippyWebServer::~SpippyWebServer() {
-    if (server_ != nullptr) {
-        httpd_stop(server_);
-        server_ = nullptr;
+SpippyWebServer::~SpippyWebServer() { Stop(); }
+
+bool SpippyWebServer::Stop() {
+    if (server_ == nullptr) {
+        return true;
     }
+    const esp_err_t err = httpd_stop(server_);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "failed to stop: %s", esp_err_to_name(err));
+        return false;
+    }
+    server_ = nullptr;
+    mdns_service_remove("_http", "_tcp");
+    return true;
 }
 
 bool SpippyWebServer::Start() {

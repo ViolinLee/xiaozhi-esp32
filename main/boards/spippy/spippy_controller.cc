@@ -276,6 +276,7 @@ void SpippyController::RegisterMcpTools() {
         "控制自己移动。action 支持 forward/前进、backward/后退、turn_left/左转、turn_right/右转、stop/停止。"
         "mode 支持 steps（指定步数，普通前进/后退/转向默认使用，steps 默认 3）、duration（按 duration_ms 持续）和 continuous（一直移动直到收到 stop，另有安全超时）。"
         "用户说走 N 步时必须使用 mode=steps、steps=N；说移动 N 秒时使用 mode=duration；说一直走/持续走直到停止时使用 mode=continuous。"
+        "非停止动作异步执行，返回成功表示指令已受理，不代表移动完成。"
         "所有前进模式共用前向保护；确认有障碍或传感器状态未知时不得绕过保护。"
         "若返回 low_power_lock，必须明确告诉用户：电量低，暂时不能运动，请先充电。",
         PropertyList({
@@ -293,6 +294,7 @@ void SpippyController::RegisterMcpTools() {
 
     mcp.AddTool("self.robot.perform",
         "让自己执行一个表演动作。action 支持 wave/挥手、bow/鞠躬、shake/抖一抖、sit/坐下、pushup/俯卧撑、dance_1/跳舞、dance_2/唱歌、bounce/蹦一蹦、pose_1/摆 pose、idle_breathe/呼吸、nod/点头、cute_wiggle/撒娇、startle/吓一跳、confused/困惑、afraid/害怕、angry/生气、sleepy/困困、voice_perform/武术、pee_right_rear/撒尿、prone/趴下；repeat 为重复次数，范围 1 到 12。"
+        "动作异步执行，返回成功表示已启动或排队，不代表表演完成。"
         "若返回 low_power_lock，必须明确告诉用户：电量低，暂时不能表演，请先充电。",
         PropertyList({Property("action", kPropertyTypeString), Property("repeat", kPropertyTypeInteger, 1, 1, 12)}),
         [this](const PropertyList &properties) -> ReturnValue {
@@ -315,6 +317,7 @@ void SpippyController::RegisterMcpTools() {
 
     mcp.AddTool("self.robot.showcase",
         "执行一组连续展示动作。mode 支持 cute/卖萌、dance/跳舞、skills/功夫、all/全部。"
+        "整组动作异步执行，返回成功表示已启动或排队，不代表展示完成。"
         "若返回 low_power_lock，必须明确告诉用户：电量低，暂时不能表演，请先充电。",
         PropertyList({Property("mode", kPropertyTypeString, std::string("all"))}),
         [this](const PropertyList &properties) -> ReturnValue {

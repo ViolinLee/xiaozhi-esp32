@@ -165,9 +165,22 @@ void SpippyDisplay::SetupUI() {
     esp_timer_start_periodic(idle_timer_, kFaceTickMs * 1000);
 }
 
-void SpippyDisplay::SetEmotion(const char *emotion) {
-    const char *profile = MapEmotion(emotion);
+bool SpippyDisplay::SetEmotion(const char* emotion) {
+    if (emotion == nullptr || emotion[0] == '\0') {
+        return false;
+    }
+    const char* profile = MapEmotion(emotion);
+    // MapEmotion's neutral fallback is useful for robot states, but the public
+    // display API must report unsupported emotions to the upstream caller.
+    if (strcmp(profile, "neutral") == 0 && strcmp(emotion, "neutral") != 0 &&
+        strcmp(emotion, "idle") != 0 && strcmp(emotion, "relaxed") != 0 &&
+        strcmp(emotion, "microchip_ai") != 0) {
+        return false;
+    }
     DisplayLockGuard lock(this);
+    if (!lock || face_image_ == nullptr) {
+        return false;
+    }
     if (strcmp(profile, "neutral") == 0 || strcmp(profile, "idle") == 0) {
         ClearLayerLocked(emotion_face_);
     } else if (strcmp(profile, "low_power") == 0 || strcmp(profile, "calibration") == 0) {
@@ -176,6 +189,7 @@ void SpippyDisplay::SetEmotion(const char *emotion) {
         SetLayerLocked(emotion_face_, profile, kConversationHoldMs);
     }
     RenderSelectedProfileLocked(esp_timer_get_time());
+    return true;
 }
 
 void SpippyDisplay::SetRobotState(const char *state) {
@@ -244,6 +258,27 @@ void SpippyDisplay::SetChatMessage(const char *role, const char *content) {
     lv_obj_remove_flag(chat_viewport_, LV_OBJ_FLAG_HIDDEN);
     StartChatScrollLocked(persistent_message);
     MoveOverlayForegroundLocked();
+}
+
+void SpippyDisplay::RemoveChatMessage(const char* role, const char* content) {
+    DisplayLockGuard lock(this);
+    if (!lock || chat_overlay_ == nullptr || content == nullptr) {
+        return;
+    }
+    // Upstream clears the temporary wake-word hint later. Only remove that
+    // exact message, never a newer conversation or locally requested URL.
+    std::string message(content);
+    std::replace(message.begin(), message.end(), '\n', ' ');
+    if (message != lv_label_get_text(chat_overlay_)) {
+        return;
+    }
+    ClearChatLocked();
+    if (activation_screen_visible_) {
+        activation_screen_visible_ = false;
+        lv_obj_remove_flag(face_image_, LV_OBJ_FLAG_HIDDEN);
+        UpdateBatteryIconLocked();
+        RenderSelectedProfileLocked(esp_timer_get_time());
+    }
 }
 
 void SpippyDisplay::ClearChatMessages() {

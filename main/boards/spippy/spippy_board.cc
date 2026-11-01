@@ -1,16 +1,19 @@
+#include <esp_event.h>
+#include <esp_lcd_io_i2c.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
-#include <esp_event.h>
 #include <esp_log.h>
 #include <esp_netif.h>
 #include <esp_wifi.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <wifi_manager.h>
+#include <freertos/semphr.h>
 #include <ssid_manager.h>
+#include <wifi_manager.h>
 
 #include <atomic>
 #include <cstdio>
+#include <utility>
 
 #include "application.h"
 #include "assets/lang_config.h"
@@ -36,12 +39,24 @@ public:
         controller_ = new SpippyController(spippy_display_);
         controller_->Initialize();
         controller_->RegisterMcpTools();
+        InitializeTools();
         web_server_ = new SpippyWebServer(controller_);
-        RegisterNetworkReadyHandler();
+        web_task_stopped_ = xSemaphoreCreateBinary();
+        if (web_task_stopped_ == nullptr ||
+            xTaskCreate(WebServerTaskEntry, "spippy_web", 4096, this, 3, &web_task_) != pdPASS) {
+            ESP_LOGE(TAG, "failed to create web lifecycle task");
+        }
     }
 
     ~SpippyBoard() override {
-        esp_event_handler_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, NetworkReadyEventHandler);
+        WifiBoard::SetNetworkEventCallback(nullptr);
+        if (web_task_ != nullptr) {
+            xTaskNotify(web_task_, kShutdownWebTask, eSetBits);
+            xSemaphoreTake(web_task_stopped_, portMAX_DELAY);
+        }
+        if (web_task_stopped_ != nullptr) {
+            vSemaphoreDelete(web_task_stopped_);
+        }
         delete web_server_;
         delete controller_;
         delete display_;
@@ -68,8 +83,20 @@ public:
         return display_;
     }
 
-    void StartNetwork() override {
-        WifiBoard::StartNetwork();
+    void SetNetworkEventCallback(NetworkEventCallback callback) override {
+        WifiBoard::SetNetworkEventCallback(
+            [this, callback = std::move(callback)](NetworkEvent event, const std::string& data) {
+                if (event == NetworkEvent::WifiConfigModeExit) {
+                    wifi_config_pending_.store(false);
+                } else if (event == NetworkEvent::Connected) {
+                    NotifyWebTask(kStartWeb);
+                } else if (event == NetworkEvent::Disconnected) {
+                    NotifyWebTask(kStopWeb);
+                }
+                if (callback) {
+                    callback(event, data);
+                }
+            });
     }
 
     bool GetBatteryLevel(int &level, bool &charging, bool &discharging) override {
@@ -98,6 +125,19 @@ public:
     }
 
 private:
+    void InitializeTools() {
+        auto& mcp = McpServer::GetInstance();
+        mcp.AddTool("self.system.reconfigure_wifi",
+                    "重新配网、更换 WiFi：结束当前对话并进入 WiFi 配网模式。"
+                    "调用前必须向用户确认，因为当前网络连接和语音对话将会断开。",
+                    PropertyList(), [this](const PropertyList&) -> ToolResult {
+                        if (!RequestWifiConfigMode()) {
+                            return std::unexpected("当前状态无法进入配网，请稍后再试");
+                        }
+                        return "已请求进入配网模式";
+                    });
+    }
+
     void InitializeDisplayI2c() {
         i2c_master_bus_config_t bus_config = {
             .i2c_port = static_cast<i2c_port_t>(CONFIG_SPIPPY_DISPLAY_I2C_PORT),
@@ -115,24 +155,17 @@ private:
     }
 
     void InitializeSsd1306Display() {
-        esp_lcd_panel_io_i2c_config_t io_config = {
-            .dev_addr = CONFIG_SPIPPY_DISPLAY_OLED_ADDR,
-            .on_color_trans_done = nullptr,
-            .user_ctx = nullptr,
-            .control_phase_bytes = 1,
-            .dc_bit_offset = 6,
-            .lcd_cmd_bits = 8,
-            .lcd_param_bits = 8,
-            .flags = {
-                .dc_low_on_data = 0,
-                .disable_control_phase = 0,
-            },
-            .scl_speed_hz = CONFIG_SPIPPY_DISPLAY_I2C_FREQ_HZ,
-        };
-        ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c_v2(display_i2c_bus_, &io_config, &panel_io_));
+        esp_lcd_panel_io_i2c_config_t io_config = {};
+        io_config.dev_addr = CONFIG_SPIPPY_DISPLAY_OLED_ADDR;
+        io_config.scl_speed_hz = CONFIG_SPIPPY_DISPLAY_I2C_FREQ_HZ;
+        io_config.control_phase_bytes = 1;
+        io_config.dc_bit_offset = 6;
+        io_config.lcd_cmd_bits = 8;
+        io_config.lcd_param_bits = 8;
+        ESP_ERROR_CHECK(esp_lcd_new_panel_io_i2c(display_i2c_bus_, &io_config, &panel_io_));
 
         esp_lcd_panel_dev_config_t panel_config = {};
-        panel_config.reset_gpio_num = -1;
+        panel_config.reset_gpio_num = GPIO_NUM_NC;
         panel_config.bits_per_pixel = 1;
 
         esp_lcd_panel_ssd1306_config_t ssd1306_config = {
@@ -166,7 +199,7 @@ private:
             auto &app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting && !WifiManager::GetInstance().IsConnected()) {
                 SsidManager::GetInstance().Clear();
-                EnterWifiConfigMode();
+                RequestWifiConfigMode();
                 return;
             }
             app.ToggleChatState();
@@ -196,57 +229,84 @@ private:
         return "http://spippy.local/spippy";
     }
 
-    void RegisterNetworkReadyHandler() {
-        esp_err_t err = esp_event_loop_create_default();
-        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-            ESP_LOGW(TAG, "failed to create default event loop: %s", esp_err_to_name(err));
-            return;
-        }
-        err = esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, NetworkReadyEventHandler, this);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "failed to register STA IP handler: %s", esp_err_to_name(err));
+    static constexpr uint32_t kStartWeb = 1;
+    static constexpr uint32_t kStopWeb = 2;
+    static constexpr uint32_t kConfigureWifi = 4;
+    static constexpr uint32_t kShutdownWebTask = 8;
+
+    void NotifyWebTask(uint32_t events) {
+        if (web_task_ != nullptr) {
+            xTaskNotify(web_task_, events, eSetBits);
         }
     }
 
-    static void NetworkReadyEventHandler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
-        (void)event_data;
-        auto *self = static_cast<SpippyBoard *>(arg);
-        if (self == nullptr) {
-            return;
-        }
-        if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-            ESP_LOGI(TAG, "station connected, starting calibration web server");
-            self->StartWebServerLater();
-        }
+    bool CanEnterWifiConfigMode() const {
+        const auto state = Application::GetInstance().GetDeviceState();
+        return state == kDeviceStateStarting || state == kDeviceStateIdle ||
+               state == kDeviceStateListening || state == kDeviceStateSpeaking ||
+               state == kDeviceStateNotifying;
     }
 
-    static void WebServerTaskEntry(void *arg) {
-        auto *self = static_cast<SpippyBoard *>(arg);
-        vTaskDelay(pdMS_TO_TICKS(1000));
-        self->StartWebServer();
+    bool RequestWifiConfigMode() {
+        if (web_task_ == nullptr) {
+            return false;
+        }
+        if (wifi_config_pending_.load()) {
+            return true;
+        }
+        if (!CanEnterWifiConfigMode()) {
+            return false;
+        }
+        if (!wifi_config_pending_.exchange(true)) {
+            NotifyWebTask(kConfigureWifi);
+        }
+        return true;
+    }
+
+    static void WebServerTaskEntry(void* arg) {
+        auto* self = static_cast<SpippyBoard*>(arg);
+        self->RunWebServerTask();
+        xSemaphoreGive(self->web_task_stopped_);
         vTaskDelete(nullptr);
     }
 
-    void StartWebServerLater() {
-        bool expected = false;
-        if (!web_server_task_started_.compare_exchange_strong(expected, true)) {
-            return;
-        }
-        BaseType_t ok = xTaskCreate(WebServerTaskEntry, "spippy_web", 4096, this, 3, nullptr);
-        if (ok != pdPASS) {
-            web_server_task_started_.store(false);
-            ESP_LOGE(TAG, "failed to create web task");
-        }
-    }
-
-    void StartWebServer() {
-        if (web_server_started_.load() || web_server_ == nullptr) {
-            return;
-        }
-        bool started = web_server_->Start();
-        web_server_started_.store(started);
-        if (!started) {
-            web_server_task_started_.store(false);
+    void RunWebServerTask() {
+        uint32_t events = 0;
+        while (xTaskNotifyWait(0, UINT32_MAX, &events, portMAX_DELAY) == pdTRUE) {
+            if (events & kShutdownWebTask) {
+                web_server_->Stop();
+                return;
+            }
+            if (events & kConfigureWifi) {
+                // httpd_stop waits for active handlers. Keep it off the application
+                // and WiFi event tasks, and release both ports before starting the AP.
+                if (!web_server_->Stop()) {
+                    wifi_config_pending_.store(false);
+                    ESP_LOGE(TAG, "cannot release calibration web ports for provisioning");
+                    continue;
+                }
+                Application::GetInstance().Schedule([this]() {
+                    if (CanEnterWifiConfigMode()) {
+                        WifiBoard::EnterWifiConfigMode();
+                    } else {
+                        wifi_config_pending_.store(false);
+                        NotifyWebTask(kStartWeb);
+                        ESP_LOGW(TAG, "device state changed before provisioning");
+                    }
+                });
+                continue;
+            }
+            if (events & kStopWeb) {
+                web_server_->Stop();
+            }
+            // Ignore stale connect events and AP-mode credential test connections.
+            // All HTTP start/stop calls run on this task, including a start already
+            // in progress when a provisioning request arrives.
+            if ((events & kStartWeb) && !wifi_config_pending_.load() &&
+                !WifiManager::GetInstance().IsConfigMode() &&
+                WifiManager::GetInstance().IsConnected()) {
+                web_server_->Start();
+            }
         }
     }
 
@@ -258,8 +318,9 @@ private:
     Button boot_button_;
     SpippyController *controller_ = nullptr;
     SpippyWebServer *web_server_ = nullptr;
-    std::atomic<bool> web_server_task_started_{false};
-    std::atomic<bool> web_server_started_{false};
+    TaskHandle_t web_task_ = nullptr;
+    SemaphoreHandle_t web_task_stopped_ = nullptr;
+    std::atomic<bool> wifi_config_pending_{false};
 };
 
 DECLARE_BOARD(SpippyBoard);

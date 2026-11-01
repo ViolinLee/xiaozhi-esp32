@@ -15,8 +15,9 @@ public:
     ~SpippyDisplay() override;
 
     void SetupUI() override;
-    void SetEmotion(const char *emotion) override;
+    bool SetEmotion(const char* emotion) override;
     void SetChatMessage(const char *role, const char *content) override;
+    void RemoveChatMessage(const char* role, const char* content) override;
     void ClearChatMessages() override;
     // A short, non-motion expression. It never overrides safety or an active action.
     void ShowFace(const char *name, uint32_t hold_ms = 0);

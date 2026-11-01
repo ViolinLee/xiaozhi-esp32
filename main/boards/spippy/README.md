@@ -7,6 +7,7 @@ Spippy 是一套面向 ESP32-S3 四足机器人的小智 BSP。固件在同一�
 主要能力包括：
 
 - 小智语音对话及 MCP 机器人控制；
+- 语音重新配网：说“重新配网”或“更换 WiFi”，确认后通过 `self.system.reconfigure_wifi` 结束当前会话并进入配网模式；
 - 前进、后退、转向和多种表演动作；
 - 三档运动速度及步数、定时、持续三种移动模式；
 - 128 × 64 OLED 表情和状态显示；
@@ -73,17 +74,17 @@ Spippy 是一套面向 ESP32-S3 四足机器人的小智 BSP。固件在同一�
 
 ## 编译与烧录
 
-本 BSP 使用 ESP-IDF 5.5.x。请先完成仓库要求的 ESP-IDF 环境安装和导出。
+本 BSP 跟随上游使用 ESP-IDF `release/v6.1`，不再支持 IDF 5.x。请先完成仓库要求的 ESP-IDF 环境安装和导出。
 
 ### 推荐：自动构建发布固件
 
 在项目根目录执行：
 
 ```bash
-python3 scripts/release.py spippy
+python3 scripts/build.py spippy --name spippy --language zh-CN --wake-word nihaoxiaozhi --zip
 ```
 
-脚本会自动完成以下工作：
+显式指定中文及“你好小智”，保持原有语音体验。脚本会自动完成以下工作：
 
 1. 选择 `esp32s3` 目标；
 2. 启用 `CONFIG_BOARD_TYPE_SPIPPY`、唤醒词、音频处理器和 MCP；

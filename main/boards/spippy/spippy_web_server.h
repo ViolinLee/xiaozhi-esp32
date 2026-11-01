@@ -10,6 +10,7 @@ public:
     explicit SpippyWebServer(SpippyController *controller);
     ~SpippyWebServer();
     bool Start();
+    bool Stop();
 
 private:
     esp_err_t StartMdns();
