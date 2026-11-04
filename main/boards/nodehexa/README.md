@@ -29,7 +29,7 @@ NodeHexa 是一个基于 ESP32-S3 的六足机器人语音控制扩展板，作�
 ## 功能特性
 
 ### 🎙️ 语音交互
-- **唤醒词检测**: 展示版本使用 MultiNet 中文“嗨小灵”（`hai xiao ling`）；保留“你好小智”的标准构建方式。
+- **唤醒词检测**: 正式发布版使用 WakeNet 中文“你好小智”（`wn9_nihaoxiaozhi_tts`）。
 - **语音重新配网**: 说“重新配网”或“更换 WiFi”，确认后通过 `self.system.reconfigure_wifi` 结束当前会话并进入配网模式。
 - **语音识别**: 实时语音转文字
 - **自然语言理解**: 理解用户的运动控制指令
@@ -142,31 +142,25 @@ NodeHexa 的语音控制基于 MCP 工具实现，开发者可以根据需要自
 
 ## 烧录步骤
 
-### 展示版本：MultiNet“嗨小灵”（本次使用）
+### 正式发布版：你好小智
 
 加载 ESP-IDF `release/v6.1` 环境后，在仓库根目录运行：
 
 ```bash
-python3 main/boards/nodehexa/build_hai_xiaoling.py
+python3 main/boards/nodehexa/build_release.py
 ```
 
-此入口读取 `config.json` 中的硬件配置和 `wake_word_hai_xiaoling.defaults`，复用上游构建、校验及资源打包函数，不修改共享框架。上游 `scripts/build.py --wake-word` 当前仅支持 WakeNet 模型，不能直接传入自定义短语。
-
-使用中文 MultiNet6 模型 `mn6_cn`，仅注册“嗨小灵”，初始识别阈值为 50%，需在实机上验证唤醒和误触发情况。应用和模型资源必须一起更新；只刷应用不能替换旧唤醒词。产物为 `releases/v<版本>_nodehexa-hai-xiaoling.zip`，OTA 板型仍为 `nodehexa`。
-
-已有设备需保留配置时，用当前构建目录的 `idf.py flash` 分文件烧录，不要将 ZIP 内的合并镜像从 `0x0` 写入，因为合并镜像会覆盖 NVS。该构建入口本身不执行烧录。
-
-### 方法一：使用 build.py 构建“你好小智”版本
-
-使用上游要求的 ESP-IDF `release/v6.1` 环境，推荐使用编译脚本。显式指定中文和“你好小智”，避免上游默认英文及英语唤醒词改变既有体验。
-
-1. **编译**
+此入口调用上游标准构建脚本，固定选择 `nodehexa`、中文和“你好小智”，并生成完整发布包。等价命令为：
 
 ```bash
 python3 scripts/build.py nodehexa --name nodehexa --language zh-CN --wake-word nihaoxiaozhi --zip
 ```
 
-2. **烧录监视**
+发布包位于 `releases/v<版本号>_nodehexa.zip`，OTA 板型为 `nodehexa`。上游入口省略语言参数时会选择英文，因此发布时请使用上述入口或完整命令。
+
+从展会“嗨小灵”版本升级时，应用和模型资源必须一起更新。只更新应用无法替换旧模型资源。正式配置启用 AFE WakeNet，并关闭 MultiNet 自定义唤醒词。
+
+已有设备需要保留配置时，使用本次构建目录执行 `idf.py flash` 分文件烧录。合并镜像从 `0x0` 烧录会覆盖 NVS，适用于全新设备或明确需要完整恢复的设备。构建入口本身不执行烧录。
 
 ```bash
 idf.py flash monitor

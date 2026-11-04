@@ -186,12 +186,12 @@ def main():
     console = SerialConsole(args.port, args.protocol)
     try:
         while True:
-            value = input("mode 0-12 [count 1-10], s0-s3 speed, p showtime/freestyle/beatsway, q: ").strip().lower()
+            value = input("mode 0-12 [count 1-10], s0-s3 speed, p showtime/freestyle/beatsway/attack/greeting/curiosity, q: ").strip().lower()
             if value == "q":
                 break
             if value.startswith("p "):
                 name = value[2:].strip()
-                if name not in ("showtime", "freestyle", "beatsway"):
+                if name not in ("showtime", "freestyle", "beatsway", "attack", "greeting", "curiosity"):
                     print("unknown performance")
                     continue
                 console.send_json({"performance": name, "repeat": False})
